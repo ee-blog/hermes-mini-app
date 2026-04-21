@@ -453,9 +453,41 @@
             margin-top: 12px;
             padding-bottom: 20px;
         }
+    /* === PC Responsive === */
+    @media (min-width: 768px) {
+        body { background: #08080f; }
+        .tab-nav { max-width: 900px; margin: 12px auto 0; border-radius: 12px 12px 0 0; }
+        .tab-btn { padding: 14px 20px; font-size: 13px; }
+        .tab-btn .tab-icon { font-size: 20px; }
+        .page { max-width: 900px; padding: 20px 24px; margin: 0 auto; }
+        #page-monitor { display: flex; flex-direction: column; gap: 12px; }
+        .gauge-grid { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .gauge-card { padding: 16px; }
+        .gauge-value { font-size: 22px; }
+        .card { padding: 16px; }
+        .section-title { font-size: 13px; margin: 16px 0 10px; font-weight: 600; }
+        #page-hermes { max-width: 700px; margin: 0 auto; }
+        #page-hermes .card, #page-hermes .model-card { width: 100%; }
+        .platform-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .memory-stats-grid { max-width: 100%; }
+        #page-ops { max-width: 480px; margin: 0 auto; }
+        #page-ops .card { padding: 24px; }
+        .ops-btn { padding: 14px 20px; font-size: 14px; }
+    }
+    .app-header { display: none; }
+    @media (min-width: 768px) {
+        .app-header { display: block; max-width: 900px; margin: 0 auto; padding: 16px 0 8px; }
+        .app-header h1 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 4px; }
+        .app-header p { font-size: 11px; color: #6b7280; text-align: center; }
+    }
     </style>
+
 </head>
 <body>
+    <div class="app-header">
+        <h1>Hermes Control Panel</h1>
+        <p>tg.eebk.com · System Monitor</p>
+    </div>
     <div class="tab-nav">
         <button class="tab-btn active" onclick="switchTab('monitor')">
             <span class="tab-icon">📊</span>监控

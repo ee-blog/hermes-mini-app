@@ -499,12 +499,17 @@ def hermes_memory():
             today = datetime.now().strftime('%Y%m%d')
             sessions_dir = os.path.join(HERMES_HOME, 'sessions/')
             # 找到今天的会话文件
-            for f in glob.glob(f'{sessions_dir}session_{today}*.json'):
+            for f in glob.glob(f'{sessions_dir}{today}_*.jsonl'):
                 try:
                     with open(f, 'r') as fp:
-                        data = json.load(fp)
-                        messages = data.get('messages', [])
-                        for msg in messages:
+                        for line in fp:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                msg = json.loads(line)
+                            except:
+                                continue
                             if msg.get('role') == 'assistant':
                                 tool_calls = msg.get('tool_calls', [])
                                 for tc in tool_calls:
@@ -513,7 +518,7 @@ def hermes_memory():
                                     if 'mem0_search' in name or 'mem0_profile' in name:
                                         today_queries += 1
                                     # 写入类工具
-                                    elif 'mem0_conclude' in name or 'memory' in name:
+                                    elif 'mem0_conclude' in name or ('memory' in name and 'add' in name):
                                         today_writes += 1
                 except:
                     pass
