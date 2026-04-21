@@ -794,10 +794,13 @@ def dashboard():
                 if svc == 'snell':
                     r = subprocess.run(['systemctl', 'is-active', 'snell'], capture_output=True, text=True, timeout=2)
                     active = r.stdout.strip() == 'active'
+                elif svc == 'gateway':
+                    r = subprocess.run(['systemctl', '--user', 'is-active', 'hermes-gateway'],
+                                       capture_output=True, text=True, timeout=2, env=get_user_env())
+                    active = r.stdout.strip() == 'active'
                 else:
-                    user_arg = '--user' if svc == 'gateway' else '--system'
-                    r = subprocess.run(['systemctl', user_arg, 'is-active', svc], capture_output=True, text=True, timeout=2)
-                    active = 'active' in r.stdout
+                    r = subprocess.run(['systemctl', 'is-active', svc], capture_output=True, text=True, timeout=2)
+                    active = r.stdout.strip() == 'active'
                 svc_result.append({'name': svc, 'status': 'running' if active else 'stopped'})
             except:
                 svc_result.append({'name': svc, 'status': 'unknown'})

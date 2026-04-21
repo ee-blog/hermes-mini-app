@@ -791,8 +791,8 @@
                 document.getElementById('disk-detail').textContent = formatBytes(s.disk.used) + ' / ' + formatBytes(s.disk.total);
                 
                 // Load
-                document.getElementById('load-val').textContent = s.cpu.load1;
-                document.getElementById('load-detail').textContent = `1m: ${s.cpu.load1}  5m: ${s.cpu.load5}`;
+                document.getElementById('load-val').textContent = s.cpu.load1.toFixed(2);
+                document.getElementById('load-detail').textContent = `1m: ${s.cpu.load1.toFixed(2)}  5m: ${s.cpu.load5.toFixed(2)}`;
                 
                 // Uptime
                 const uptime = formatUptime(s.uptime);
