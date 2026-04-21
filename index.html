@@ -446,13 +446,7 @@
             color: var(--danger);
         }
 
-        .refresh-info {
-            text-align: center;
-            font-size: 11px;
-            color: var(--hint);
-            margin-top: 12px;
-            padding-bottom: 20px;
-        }
+        
     /* === PC Responsive === */
     @media (min-width: 768px) {
         body { background: #08080f; }
@@ -463,7 +457,7 @@
         #page-monitor.active { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
         #page-monitor.active > div:first-child { grid-column: 1 / -1; }
         .gauge-grid { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-        .refresh-info { grid-column: 1 / -1; }
+        #page-monitor.active .uptime-bar { grid-column: 1 / -1; }
         .gauge-card { padding: 14px; }
         .gauge-value { font-size: 20px; }
         .card { padding: 14px; }
@@ -568,7 +562,12 @@
 
         <div class="card" id="mem-top"><div class="section-title">内存 TOP</div>加载中...</div>
 
-        <div class="refresh-info">每 5 秒自动刷新</div>
+        <div class="uptime-bar">
+            <span class="uptime-heartbeat">♥</span>
+            <span class="uptime-text" id="stat-uptime-monitor">--</span>
+            <span class="uptime-label">运行中</span>
+            <div class="uptime-line"></div>
+        </div>
     </div>
 
     <!-- === Hermes Page === -->
@@ -640,13 +639,14 @@
         </div>
 
         <!-- 运行时间 - 底部状态条 -->
-        <div class="uptime-bar" id="uptime-bar">
+        <div class="uptime-bar">
             <span class="uptime-heartbeat">♥</span>
-            <span class="uptime-text" id="stat-uptime">--</span>
+            <span class="uptime-text" id="stat-uptime-hermes">--</span>
             <span class="uptime-label">运行中</span>
             <div class="uptime-line"></div>
         </div>
 
+        <hr class="divider">
     </div>
 
     <!-- === Maintenance Page === -->
@@ -681,6 +681,13 @@
             <div class="card" id="ops-log" style="min-height:80px">
                 <div style="color:var(--hint);font-size:12px">点击上方按钮执行操作</div>
             </div>
+        </div>
+
+        <div class="uptime-bar">
+            <span class="uptime-heartbeat">♥</span>
+            <span class="uptime-text" id="stat-uptime-ops">--</span>
+            <span class="uptime-label">运行中</span>
+            <div class="uptime-line"></div>
         </div>
     </div>
 
@@ -754,7 +761,10 @@
 
                 document.getElementById('load-val').textContent = d.cpu.load1;
                 document.getElementById('load-detail').textContent = `1m: ${d.cpu.load1}  5m: ${d.cpu.load5}`;
-                document.getElementById('stat-uptime').textContent = formatUptime(d.uptime);
+                const uptime = formatUptime(d.uptime);
+                document.getElementById('stat-uptime-monitor').textContent = uptime;
+                document.getElementById('stat-uptime-hermes').textContent = uptime;
+                document.getElementById('stat-uptime-ops').textContent = uptime;
 
                 // Net speed
                 if (d.io && d.io.net_speed) {
