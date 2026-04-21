@@ -460,18 +460,17 @@
         .tab-btn { padding: 14px 20px; font-size: 13px; }
         .tab-btn .tab-icon { font-size: 20px; }
         .page { max-width: 900px; padding: 20px 24px; margin: 0 auto; }
-        #page-monitor { display: flex; flex-direction: column; gap: 12px; }
+        #page-monitor.active { display: flex; flex-direction: column; gap: 12px; }
         .gauge-grid { grid-template-columns: repeat(4, 1fr); gap: 12px; }
         .gauge-card { padding: 16px; }
         .gauge-value { font-size: 22px; }
         .card { padding: 16px; }
         .section-title { font-size: 13px; margin: 16px 0 10px; font-weight: 600; }
-        #page-hermes { max-width: 700px; margin: 0 auto; }
-        #page-hermes .card, #page-hermes .model-card { width: 100%; }
+        #page-hermes.active { display: block; max-width: 900px; }
+        .model-card { width: 100%; }
         .platform-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
         .memory-stats-grid { max-width: 100%; }
-        #page-ops { max-width: 480px; margin: 0 auto; }
-        #page-ops .card { padding: 24px; }
+        #page-ops.active { display: block; max-width: 900px; }
         .ops-btn { padding: 14px 20px; font-size: 14px; }
     }
     .app-header { display: none; }
