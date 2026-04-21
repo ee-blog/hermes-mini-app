@@ -460,12 +460,14 @@
         .tab-btn { padding: 14px 20px; font-size: 13px; }
         .tab-btn .tab-icon { font-size: 20px; }
         .page { max-width: 900px; padding: 20px 24px; margin: 0 auto; }
-        #page-monitor.active { display: flex; flex-direction: column; gap: 12px; }
-        .gauge-grid { grid-template-columns: repeat(4, 1fr); gap: 12px; }
-        .gauge-card { padding: 16px; }
-        .gauge-value { font-size: 22px; }
-        .card { padding: 16px; }
-        .section-title { font-size: 13px; margin: 16px 0 10px; font-weight: 600; }
+        #page-monitor.active { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+        #page-monitor.active > div:first-child { grid-column: 1 / -1; }
+        .gauge-grid { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .refresh-info { grid-column: 1 / -1; }
+        .gauge-card { padding: 14px; }
+        .gauge-value { font-size: 20px; }
+        .card { padding: 14px; }
+        .section-title { font-size: 12px; margin: 0 0 8px; font-weight: 600; color: #9ca3af; }
         #page-hermes.active { display: block; max-width: 900px; }
         .model-card { width: 100%; }
         .platform-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
@@ -540,8 +542,8 @@
             </div>
         </div>
 
-        <div class="section-title">网络流量</div>
         <div class="card" id="traffic-card">
+            <div class="section-title">网络流量</div>
             <div class="traffic-row">
                 <span class="traffic-label">↑ 上传</span>
                 <span class="traffic-value up" id="net-up">--</span>
@@ -560,14 +562,11 @@
             </div>
         </div>
 
-        <div class="section-title">服务状态</div>
-        <div class="card" id="services-card">加载中...</div>
+        <div class="card" id="services-card"><div class="section-title">服务状态</div>加载中...</div>
 
-        <div class="section-title">CPU TOP</div>
-        <div class="card" id="cpu-top">加载中...</div>
+        <div class="card" id="cpu-top"><div class="section-title">CPU TOP</div>加载中...</div>
 
-        <div class="section-title">内存 TOP</div>
-        <div class="card" id="mem-top">加载中...</div>
+        <div class="card" id="mem-top"><div class="section-title">内存 TOP</div>加载中...</div>
 
         <div class="refresh-info">每 5 秒自动刷新</div>
     </div>
