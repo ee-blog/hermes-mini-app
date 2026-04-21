@@ -745,5 +745,68 @@ def restart_service():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/dashboard')
+def dashboard():
+    """一次性返回所有仪表盘数据，减少请求数"""
+    try:
+        # 并行获取
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        result = {'timestamp': int(time.time() * 1000)}
+        
+        # 系统数据
+        cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+        cpu_percent = sum(cpu_per_core) / len(cpu_per_core)
+        load = os.getloadavg()
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        uptime = int(time.time() - psutil.boot_time())
+        io_stats = get_cached_io_stats()
+        
+        result['system'] = {
+            'cpu': {'percent': cpu_percent, 'per_core': cpu_per_core, 'load1': float(load[0]), 'load5': float(load[1])},
+            'memory': {'percent': mem.percent, 'used': mem.used, 'total': mem.total},
+            'disk': {'percent': disk.percent, 'used': disk.used, 'total': disk.total},
+            'uptime': uptime,
+            'io': io_stats
+        }
+        
+        # 进程数据
+        procs = []
+        for p in psutil.process_iter(['name', 'cpu_percent', 'memory_info']):
+            try:
+                cpu = p.info['cpu_percent'] or 0
+                mem_bytes = p.info['memory_info'].rss if p.info['memory_info'] else 0
+                procs.append({'name': p.info['name'], 'cpu': cpu, 'memory': mem_bytes})
+            except:
+                pass
+        result['processes'] = {
+            'cpu_top': sorted(procs, key=lambda x: x['cpu'], reverse=True)[:5],
+            'mem_top': sorted(procs, key=lambda x: x['memory'], reverse=True)[:5]
+        }
+        
+        # 服务状态
+        services = ['gateway', 'hermes', 'ollama', 'snell']
+        svc_result = []
+        for svc in services:
+            try:
+                if svc == 'snell':
+                    r = subprocess.run(['systemctl', 'is-active', 'snell'], capture_output=True, text=True, timeout=2)
+                    active = r.stdout.strip() == 'active'
+                else:
+                    user_arg = '--user' if svc == 'gateway' else '--system'
+                    r = subprocess.run(['systemctl', user_arg, 'is-active', svc], capture_output=True, text=True, timeout=2)
+                    active = 'active' in r.stdout
+                svc_result.append({'name': svc, 'status': 'running' if active else 'stopped'})
+            except:
+                svc_result.append({'name': svc, 'status': 'unknown'})
+        result['services'] = svc_result
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=9120, debug=False)

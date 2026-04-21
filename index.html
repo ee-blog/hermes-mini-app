@@ -732,44 +732,106 @@
         function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
         // === Monitor ===
-        async function refreshMonitor() {
+        // === Dashboard 刷新（统一接口） ===
+        let _refreshTimer = null;
+        let _networkTimer = null;
+        let _hermesTimer = null;
+        let _pageVisible = true;
+
+        // 页面可见性检测 - 隐藏时暂停刷新
+        document.addEventListener('visibilitychange', () => {
+            _pageVisible = !document.hidden;
+            if (_pageVisible) {
+                refreshDashboard(); // 恢复时立即刷新
+                startTimers();
+            } else {
+                stopTimers();
+            }
+        });
+
+        function startTimers() {
+            stopTimers();
+            _refreshTimer = setInterval(refreshDashboard, 5000);
+            _networkTimer = setInterval(refreshMonthlyTraffic, 30000);
+            _hermesTimer = setInterval(loadHermesData, 30000);
+        }
+        function stopTimers() {
+            clearInterval(_refreshTimer);
+            clearInterval(_networkTimer);
+            clearInterval(_hermesTimer);
+        }
+
+        async function refreshDashboard() {
             try {
-                const r = await fetch(API + '/system');
+                const r = await fetch(API + '/dashboard');
                 const d = await r.json();
-
-                document.getElementById('cpu-val').textContent = d.cpu.percent.toFixed(1) + '%';
+                if (d.error) return;
+                
+                const s = d.system;
+                // CPU
+                document.getElementById('cpu-val').textContent = s.cpu.percent.toFixed(1) + '%';
                 const cpuBar = document.getElementById('cpu-bar');
-                cpuBar.style.width = d.cpu.percent + '%';
-                cpuBar.className = 'gauge-fill ' + barColor(d.cpu.percent);
-                // CPU per-core: compact one line
-                const cores = d.cpu.per_core || [];
+                cpuBar.style.width = s.cpu.percent + '%';
+                cpuBar.className = 'gauge-fill ' + barColor(s.cpu.percent);
+                const cores = s.cpu.per_core || [];
                 document.getElementById('cpu-detail').textContent = cores.map((v, i) => `C${i+1}:${v.toFixed(0)}%`).join(' ');
-
-                document.getElementById('mem-val').textContent = d.memory.percent.toFixed(1) + '%';
+                
+                // Memory
+                document.getElementById('mem-val').textContent = s.memory.percent.toFixed(1) + '%';
                 const memBar = document.getElementById('mem-bar');
-                memBar.style.width = d.memory.percent + '%';
-                memBar.className = 'gauge-fill ' + (d.memory.percent > 80 ? 'fill-red' : 'fill-blue');
-                document.getElementById('mem-detail').textContent = formatBytes(d.memory.used) + ' / ' + formatBytes(d.memory.total);
-
-                document.getElementById('disk-val').textContent = d.disk.percent.toFixed(1) + '%';
+                memBar.style.width = s.memory.percent + '%';
+                memBar.className = 'gauge-fill ' + (s.memory.percent > 80 ? 'fill-red' : 'fill-blue');
+                document.getElementById('mem-detail').textContent = formatBytes(s.memory.used) + ' / ' + formatBytes(s.memory.total);
+                
+                // Disk
+                document.getElementById('disk-val').textContent = s.disk.percent.toFixed(1) + '%';
                 const diskBar = document.getElementById('disk-bar');
-                diskBar.style.width = d.disk.percent + '%';
-                diskBar.className = 'gauge-fill ' + barColor(d.disk.percent);
-                document.getElementById('disk-detail').textContent = formatBytes(d.disk.used) + ' / ' + formatBytes(d.disk.total);
-
-                document.getElementById('load-val').textContent = d.cpu.load1;
-                document.getElementById('load-detail').textContent = `1m: ${d.cpu.load1}  5m: ${d.cpu.load5}`;
-                const uptime = formatUptime(d.uptime);
+                diskBar.style.width = s.disk.percent + '%';
+                diskBar.className = 'gauge-fill ' + barColor(s.disk.percent);
+                document.getElementById('disk-detail').textContent = formatBytes(s.disk.used) + ' / ' + formatBytes(s.disk.total);
+                
+                // Load
+                document.getElementById('load-val').textContent = s.cpu.load1;
+                document.getElementById('load-detail').textContent = `1m: ${s.cpu.load1}  5m: ${s.cpu.load5}`;
+                
+                // Uptime
+                const uptime = formatUptime(s.uptime);
                 document.getElementById('stat-uptime-monitor').textContent = uptime;
                 document.getElementById('stat-uptime-hermes').textContent = uptime;
                 document.getElementById('stat-uptime-ops').textContent = uptime;
-
+                
                 // Net speed
-                if (d.io && d.io.net_speed) {
-                    document.getElementById('net-up').textContent = formatSpeed(d.io.net_speed.upload_per_sec);
-                    document.getElementById('net-down').textContent = formatSpeed(d.io.net_speed.download_per_sec);
+                if (s.io && s.io.net_speed) {
+                    document.getElementById('net-up').textContent = formatSpeed(s.io.net_speed.upload_per_sec);
+                    document.getElementById('net-down').textContent = formatSpeed(s.io.net_speed.download_per_sec);
                 }
-            } catch(e) { console.error(e); }
+                
+                // Processes
+                const proc = d.processes;
+                document.getElementById('cpu-top').innerHTML = '<div class="section-title">CPU TOP</div>' + (proc.cpu_top || []).map(p => `
+                    <div class="proc-item">
+                        <span class="proc-name">${esc(p.name)}</span>
+                        <span class="proc-cpu">${p.cpu}%</span>
+                    </div>
+                `).join('') || '<div class="section-title">CPU TOP</div><div style="color:var(--hint);font-size:11px">无数据</div>';
+                
+                document.getElementById('mem-top').innerHTML = '<div class="section-title">内存 TOP</div>' + (proc.mem_top || []).map(p => {
+                    return `<div class="proc-item">
+                        <span class="proc-name">${esc(p.name)}</span>
+                        <span class="proc-mem">${(p.memory / 1048576).toFixed(0)} MB</span>
+                    </div>`;
+                }).join('') || '<div class="section-title">内存 TOP</div><div style="color:var(--hint);font-size:11px">无数据</div>';
+                
+                // Services
+                const names = { hermes: 'Hermes', gateway: 'Gateway', snell: 'Snell', ollama: 'Ollama' };
+                document.getElementById('services-card').innerHTML = '<div class="section-title">服务状态</div>' + (d.services || []).map(svc => `
+                    <div class="info-row">
+                        <span>${names[svc.name] || svc.name}</span>
+                        <span style="color:${svc.status === 'running' ? 'var(--success)' : 'var(--danger)'}">● ${svc.status === 'running' ? '运行中' : '未运行'}</span>
+                    </div>
+                `).join('');
+                
+            } catch(e) { console.error('Dashboard refresh error:', e); }
         }
 
         async function refreshMonthlyTraffic() {
@@ -799,47 +861,6 @@
             } catch(e) {}
         }
 
-        async function refreshProcesses() {
-            try {
-                const r = await fetch(API + '/processes');
-                const d = await r.json();
-                
-                document.getElementById('cpu-top').innerHTML = (d.top_cpu || []).map(p => `
-                    <div class="proc-item">
-                        <span class="proc-name">${esc(p.name)}</span>
-                        <span class="proc-cpu">${p.cpu}%</span>
-                    </div>
-                `).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
-                
-                document.getElementById('mem-top').innerHTML = (d.top_mem || []).map(p => {
-                    return `<div class="proc-item">
-                        <span class="proc-name">${esc(p.name)}</span>
-                        <span class="proc-mem">${p.mem_mb.toFixed(0)} MB</span>
-                    </div>`;
-                }).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
-            } catch(e) {}
-        }
-
-        async function refreshServices() {
-            try {
-                const r = await fetch(API + '/services');
-                const d = await r.json();
-                const names = {
-                    hermes: 'Hermes',
-                    gateway: 'Gateway',
-                    snell: 'Snell',
-                    ollama: 'Ollama'
-                };
-                document.getElementById('services-card').innerHTML = Object.entries(d).map(([k, v]) => `
-                    <div class="info-row">
-                        <span>${names[k] || k}</span>
-                        <span style="color:${v ? 'var(--success)' : 'var(--danger)'}">● ${v ? '运行中' : '未运行'}</span>
-                    </div>
-                `).join('');
-            } catch(e) {}
-        }
-
-        // === Hermes ===
         async function loadHermesData() {
             let modelInfo = { model: '--', provider: '--' };
             let memInfo = { provider: '--', count: 0 };
@@ -973,18 +994,11 @@
         }
 
         // === Init ===
-        refreshMonitor();
-        refreshProcesses();
-        refreshServices();
+        refreshDashboard();
         refreshMonthlyTraffic();
         loadHermesData();
         checkOpsAccess();
-
-        setInterval(refreshMonitor, 5000);
-        setInterval(refreshProcesses, 5000);
-        setInterval(refreshServices, 15000);
-        setInterval(refreshMonthlyTraffic, 30000);
-        setInterval(loadHermesData, 30000);
+        startTimers();
 
         // 当前时间显示（每秒更新）
         function updateCurrentTime() {
