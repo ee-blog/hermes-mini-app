@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Hermes Control Panel</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg: var(--tg-theme-bg-color, #0f0f1a);
+            --bg2: var(--tg-theme-secondary-bg-color, #1a1a2e);
+            --text: var(--tg-theme-text-color, #e0e0e0);
+            --hint: var(--tg-theme-hint-color, #6b7280);
+            --accent: var(--tg-theme-button-color, #5288c1);
+            --accent-text: var(--tg-theme-button-text-color, #fff);
+            --link: var(--tg-theme-link-color, #64b5f6);
+            --danger: #ef4444;
+            --success: #22c55e;
+            --warn: #f59e0b;
+            --radius: 12px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .tab-nav {
+            display: flex;
+            background: var(--bg2);
+            position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 14px 8px;
+            border: none;
+            background: none;
+            color: var(--hint);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+        .tab-btn.active { color: var(--accent); }
+        .tab-btn .tab-icon { font-size: 18px; }
+
+        .page { display: none; padding: 14px; max-width: 440px; margin: 0 auto; }
+        .page.active { display: block; }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(34,197,94,0.15);
+            color: var(--success);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+        .section-title {
+            font-size: 12px;
+            color: var(--hint);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 18px 0 10px;
+        }
+
+        .card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 14px;
+            margin-bottom: 10px;
+        }
+
+        .gauge-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .gauge-card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 14px;
+        }
+        .gauge-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .gauge-label { font-size: 12px; color: var(--hint); }
+        .gauge-value { font-size: 20px; font-weight: 700; }
+        .gauge-bar {
+            height: 5px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+        .gauge-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+        .fill-green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+        .fill-yellow { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .fill-red { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .fill-blue { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+        .info-row + .info-row { border-top: 1px solid rgba(255,255,255,0.05); }
+
+        .proc-item {
+            display: flex;
+            align-items: center;
+            padding: 7px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 12px;
+        }
+        .proc-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin: 0 8px;
+        }
+        .proc-cpu { color: var(--success); min-width: 38px; text-align: right; }
+        .proc-mem { color: var(--link); min-width: 48px; text-align: right; }
+
+        .model-card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .model-icon { font-size: 28px; }
+        .model-info { flex: 1; }
+        .model-name { font-weight: 600; font-size: 15px; }
+        .model-provider { font-size: 11px; color: var(--hint); margin-top: 2px; }
+
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .platform-item {
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            padding: 10px 6px;
+            text-align: center;
+        }
+        .platform-icon { font-size: 22px; margin-bottom: 4px; }
+        .platform-name { font-size: 11px; color: var(--hint); }
+        .platform-status { font-weight: 600; font-size: 12px; margin-top: 3px; }
+        .platform-status.online { color: var(--success); }
+        .platform-status.offline { color: var(--danger); }
+
+        .stats-row {
+            display: flex;
+            gap: 8px;
+        }
+        .stat-box {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-num { font-size: 22px; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 10px; color: var(--hint); margin-top: 2px; }
+
+        /* Memory Stats Grid */
+        .memory-stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 40px 1.2fr;
+            gap: 0;
+            position: relative;
+        }
+        .memory-left {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .memory-row {
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 14px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        #stat-writes-box {
+            background: linear-gradient(135deg, rgba(249,115,22,0.12), rgba(249,115,22,0.03));
+        }
+        #stat-queries-box {
+            background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03));
+        }
+        .memory-info { flex: 1; text-align: center; }
+        .memory-info .stat-num { font-size: 22px; }
+        .memory-info .stat-label { font-size: 10px; }
+
+        /* Flow Bridge - 中间数据流通道 */
+        .flow-bridge {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            padding: 4px 0;
+            position: relative;
+        }
+        .bridge-row {
+            height: 40px;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .bridge-dot {
+            position: absolute;
+            font-size: 8px;
+            opacity: 0;
+        }
+
+        /* 写入：从左向右飞向大脑 */
+        .write-bridge .bridge-dot {
+            color: #f97316;
+            animation: flyRight 1.8s ease-in-out infinite;
+        }
+        .write-bridge .wd1 { animation-delay: 0s; }
+        .write-bridge .wd2 { animation-delay: 0.6s; }
+        .write-bridge .wd3 { animation-delay: 1.2s; }
+
+        @keyframes flyRight {
+            0% { left: 0; opacity: 0.9; transform: scale(1); }
+            70% { opacity: 0.7; }
+            100% { left: calc(100% - 8px); opacity: 0; transform: scale(0.5); }
+        }
+
+        /* 查询：从右向左飞出大脑 */
+        .query-bridge .bridge-dot {
+            color: #3b82f6;
+            animation: flyLeft 1.8s ease-in-out infinite;
+        }
+        .query-bridge .qd1 { animation-delay: 0s; }
+        .query-bridge .qd2 { animation-delay: 0.6s; }
+        .query-bridge .qd3 { animation-delay: 1.2s; }
+
+        @keyframes flyLeft {
+            0% { right: 0; left: auto; opacity: 0.9; transform: scale(1); }
+            70% { opacity: 0.7; }
+            100% { right: calc(100% - 8px); left: auto; opacity: 0; transform: scale(0.5); }
+        }
+
+        /* Idle states */
+        .flow-bridge.idle .bridge-dot {
+            animation-play-state: paused;
+            opacity: 0.15;
+        }
+        .write-bridge.idle .bridge-dot { left: 50%; right: auto; }
+        .query-bridge.idle .bridge-dot { right: 50%; left: auto; }
+
+        /* Brain Card */
+        .memory-brain {
+            background: linear-gradient(135deg, rgba(139,92,246,0.1), rgba(59,130,246,0.05));
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            grid-row: span 2;
+        }
+        .brain-icon {
+            font-size: 36px;
+            animation: brainFloat 3s ease-in-out infinite;
+            position: relative;
+            z-index: 2;
+        }
+        @keyframes brainFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-4px) scale(1.05); }
+        }
+        .brain-count {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent);
+            margin: 6px 0 2px;
+            position: relative;
+            z-index: 2;
+        }
+        .brain-label {
+            font-size: 11px;
+            color: var(--hint);
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Pulse */
+        .brain-pulse {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(139,92,246,0.3), transparent 70%);
+            animation: brainPulse 2s ease-in-out infinite;
+        }
+        @keyframes brainPulse {
+            0%, 100% { transform: scale(0.8); opacity: 0.6; }
+            50% { transform: scale(1.2); opacity: 0.3; }
+        }
+
+        /* Neurons */
+        .neurons {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+        .neuron {
+            position: absolute;
+            font-size: 6px;
+            color: rgba(139,92,246,0.6);
+            animation: neuronBlink 2s ease-in-out infinite;
+        }
+        .neuron.n1 { top: 15%; left: 20%; animation-delay: 0s; }
+        .neuron.n2 { top: 25%; right: 15%; animation-delay: 0.4s; }
+        .neuron.n3 { bottom: 30%; left: 25%; animation-delay: 0.8s; }
+        .neuron.n4 { top: 60%; right: 20%; animation-delay: 1.2s; }
+        .neuron.n5 { bottom: 15%; right: 35%; animation-delay: 1.6s; }
+        @keyframes neuronBlink {
+            0%, 100% { opacity: 0.2; text-shadow: none; }
+            50% { opacity: 1; text-shadow: 0 0 8px rgba(139,92,246,0.8); }
+        }
+
+        /* Idle state */
+        .memory-brain.idle .brain-icon { animation: none; }
+        .memory-brain.idle .brain-pulse { animation: none; opacity: 0.2; }
+        .memory-brain.idle .neuron { animation: none; opacity: 0.15; }
+
+        /* Uptime Bar - 底部状态条 */
+        .uptime-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            margin-top: 12px;
+            background: linear-gradient(90deg, rgba(34,197,94,0.08), rgba(34,197,94,0.15), rgba(34,197,94,0.08));
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .uptime-heartbeat {
+            color: #22c55e;
+            font-size: 14px;
+            animation: heartbeat 1.2s ease-in-out infinite;
+        }
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+        .uptime-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .uptime-label {
+            font-size: 11px;
+            color: var(--hint);
+        }
+        .uptime-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #22c55e, transparent);
+            animation: linePulse 2s ease-in-out infinite;
+        }
+        @keyframes linePulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+
+        .traffic-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .traffic-row:last-child { border-bottom: none; }
+        .traffic-label { font-size: 12px; color: var(--hint); }
+        .traffic-value { font-size: 13px; font-weight: 500; }
+        .traffic-value.up { color: var(--success); }
+        .traffic-value.down { color: var(--link); }
+
+        .ops-btn {
+            padding: 12px 8px;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: opacity 0.2s;
+        }
+        .ops-btn:active { opacity: 0.7; }
+        .ops-btn.primary {
+            background: var(--accent);
+            color: var(--accent-text);
+        }
+        .ops-btn.danger {
+            background: rgba(239,68,68,0.15);
+            color: var(--danger);
+        }
+
+        .refresh-info {
+            text-align: center;
+            font-size: 11px;
+            color: var(--hint);
+            margin-top: 12px;
+            padding-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="tab-nav">
+        <button class="tab-btn active" onclick="switchTab('monitor')">
+            <span class="tab-icon">📊</span>监控
+        </button>
+        <button class="tab-btn" onclick="switchTab('hermes')">
+            <span class="tab-icon">🤖</span>Hermes
+        </button>
+        <button class="tab-btn" onclick="switchTab('ops')">
+            <span class="tab-icon">🔧</span>维护
+        </button>
+    </div>
+
+    <!-- === Monitor Page === -->
+    <div id="page-monitor" class="page active">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <span class="status-badge"><span class="status-dot"></span>在线</span>
+            <span style="font-size:11px;color:var(--hint)" id="current-time">--</span>
+        </div>
+
+        <div class="gauge-grid">
+            <div class="gauge-card">
+                <div class="gauge-header">
+                    <span class="gauge-label">CPU</span>
+                    <span class="gauge-value" id="cpu-val">--</span>
+                </div>
+                <div class="gauge-bar"><div class="gauge-fill fill-green" id="cpu-bar" style="width:0%"></div></div>
+                <div style="font-size:10px;color:var(--hint);margin-top:6px;white-space:nowrap" id="cpu-detail">--</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-header">
+                    <span class="gauge-label">内存</span>
+                    <span class="gauge-value" id="mem-val">--</span>
+                </div>
+                <div class="gauge-bar"><div class="gauge-fill fill-blue" id="mem-bar" style="width:0%"></div></div>
+                <div style="font-size:11px;color:var(--hint);margin-top:6px" id="mem-detail">--</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-header">
+                    <span class="gauge-label">磁盘</span>
+                    <span class="gauge-value" id="disk-val">--</span>
+                </div>
+                <div class="gauge-bar"><div class="gauge-fill fill-yellow" id="disk-bar" style="width:0%"></div></div>
+                <div style="font-size:11px;color:var(--hint);margin-top:6px" id="disk-detail">--</div>
+            </div>
+            <div class="gauge-card">
+                <div class="gauge-header">
+                    <span class="gauge-label">负载</span>
+                    <span class="gauge-value" id="load-val">--</span>
+                </div>
+                <div style="font-size:11px;color:var(--hint);margin-top:6px" id="load-detail">--</div>
+            </div>
+        </div>
+
+        <div class="section-title">网络流量</div>
+        <div class="card" id="traffic-card">
+            <div class="traffic-row">
+                <span class="traffic-label">↑ 上传</span>
+                <span class="traffic-value up" id="net-up">--</span>
+            </div>
+            <div class="traffic-row">
+                <span class="traffic-label">↓ 下载</span>
+                <span class="traffic-value down" id="net-down">--</span>
+            </div>
+            <div class="traffic-row">
+                <span class="traffic-label">本月流量</span>
+                <span class="traffic-value" id="net-monthly">--</span>
+            </div>
+            <div class="traffic-row">
+                <span class="traffic-label">月度额度</span>
+                <span class="traffic-value" id="net-quota">--</span>
+            </div>
+        </div>
+
+        <div class="section-title">服务状态</div>
+        <div class="card" id="services-card">加载中...</div>
+
+        <div class="section-title">CPU TOP</div>
+        <div class="card" id="cpu-top">加载中...</div>
+
+        <div class="section-title">内存 TOP</div>
+        <div class="card" id="mem-top">加载中...</div>
+
+        <div class="refresh-info">每 5 秒自动刷新</div>
+    </div>
+
+    <!-- === Hermes Page === -->
+    <div id="page-hermes" class="page">
+        <div class="model-card">
+            <span class="model-icon">🧠</span>
+            <div class="model-info">
+                <div class="model-name" id="model-name">--</div>
+                <div class="model-provider" id="model-provider">--</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="font-size:14px;font-weight:600;margin-bottom:10px">⚙️ 驱动引擎</div>
+            <div id="engine-list">加载中...</div>
+        </div>
+
+        <div class="card">
+            <div style="font-size:14px;font-weight:600;margin-bottom:10px">🔗 平台连接</div>
+            <div class="platform-grid" id="platform-grid">加载中...</div>
+        </div>
+
+        <div class="section-title">🧠 记忆引擎</div>
+        <div class="memory-stats-grid" id="memory-stats-grid">
+            <!-- 左侧：写入 + 查询 -->
+            <div class="memory-left">
+                <div class="memory-row" id="stat-writes-box">
+                    <div class="memory-info">
+                        <div class="stat-num" id="stat-mem-writes">--</div>
+                        <div class="stat-label">今日写入</div>
+                    </div>
+                </div>
+                <div class="memory-row" id="stat-queries-box">
+                    <div class="memory-info">
+                        <div class="stat-num" id="stat-mem-queries">--</div>
+                        <div class="stat-label">今日查询</div>
+                    </div>
+                </div>
+            </div>
+            <!-- 中间：数据流箭头 -->
+            <div class="flow-bridge">
+                <!-- 写入：左→右，飞向大脑 -->
+                <div class="bridge-row write-bridge" id="write-bridge">
+                    <span class="bridge-dot wd1">●</span>
+                    <span class="bridge-dot wd2">●</span>
+                    <span class="bridge-dot wd3">●</span>
+                </div>
+                <!-- 查询：右→左，从大脑飞出 -->
+                <div class="bridge-row query-bridge" id="query-bridge">
+                    <span class="bridge-dot qd1">●</span>
+                    <span class="bridge-dot qd2">●</span>
+                    <span class="bridge-dot qd3">●</span>
+                </div>
+            </div>
+            <!-- 右侧：记忆总量 -->
+            <div class="memory-brain" id="stat-brain">
+                <div class="brain-icon">🧠</div>
+                <div class="brain-count" id="stat-memory">--</div>
+                <div class="brain-label">记忆总量</div>
+                <div class="brain-pulse"></div>
+                <div class="neurons">
+                    <span class="neuron n1">●</span>
+                    <span class="neuron n2">●</span>
+                    <span class="neuron n3">●</span>
+                    <span class="neuron n4">●</span>
+                    <span class="neuron n5">●</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 运行时间 - 底部状态条 -->
+        <div class="uptime-bar" id="uptime-bar">
+            <span class="uptime-heartbeat">♥</span>
+            <span class="uptime-text" id="stat-uptime">--</span>
+            <span class="uptime-label">运行中</span>
+            <div class="uptime-line"></div>
+        </div>
+
+    </div>
+
+    <!-- === Maintenance Page === -->
+    <div id="page-ops" class="page">
+        <!-- 密码验证界面 -->
+        <div id="ops-login" class="card" style="display:none;text-align:center;padding:24px">
+            <div style="font-size:14px;font-weight:600;margin-bottom:16px">🔒 访问验证</div>
+            <div style="font-size:12px;color:var(--hint);margin-bottom:16px" id="ops-ip-msg">检测中...</div>
+            <input type="password" id="ops-password-input" placeholder="输入密码" class="form-input"
+                   style="width:100%;margin-bottom:12px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:var(--text);text-align:center"
+                   onkeydown="if(event.key==='Enter')submitOpsPassword()">
+            <button class="ops-btn primary" style="width:100%" onclick="submitOpsPassword()">验证</button>
+        </div>
+
+        <!-- 操作界面 -->
+        <div id="ops-panel" style="display:none">
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px">🚨 紧急抢救</div>
+            <div style="font-size:12px;color:var(--hint);margin-bottom:12px">
+                Hermes 卡死无响应时，用这个强制重启
+            </div>
+
+            <button class="ops-btn danger" style="width:100%;margin-bottom:8px" onclick="emergencyRestart()">
+                <span>🚨 杀所有进程 + 重启 Gateway</span>
+            </button>
+
+            <div style="font-size:14px;font-weight:600;margin:18px 0 12px">🔄 重启 Gateway</div>
+            <button class="ops-btn primary" style="width:100%" onclick="restartService('gateway')">
+                <span>⚡ 正常重启 Gateway</span>
+            </button>
+
+            <div style="font-size:14px;font-weight:600;margin:18px 0 12px">📋 操作日志</div>
+            <div class="card" id="ops-log" style="min-height:80px">
+                <div style="color:var(--hint);font-size:12px">点击上方按钮执行操作</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+        const TOKEN = 'hermes-mini-app-2024';
+        const tg = window.Telegram?.WebApp;
+        if (tg) { tg.expand(); tg.setHeaderColor('#1a1a2e'); }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('page-' + tab).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+
+        function barColor(p) {
+            if (p > 85) return 'fill-red';
+            if (p > 60) return 'fill-yellow';
+            return 'fill-green';
+        }
+
+        function formatUptime(seconds) {
+            const d = Math.floor(seconds / 86400);
+            const h = Math.floor((seconds % 86400) / 3600);
+            if (d > 0) return d + 'd ' + h + 'h';
+            const m = Math.floor((seconds % 3600) / 60);
+            if (h > 0) return h + 'h ' + m + 'm';
+            return m + 'm';
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatSpeed(bytesPerSec) {
+            return formatBytes(bytesPerSec) + '/s';
+        }
+
+        function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        // === Monitor ===
+        async function refreshMonitor() {
+            try {
+                const r = await fetch(API + '/system');
+                const d = await r.json();
+
+                document.getElementById('cpu-val').textContent = d.cpu.percent.toFixed(1) + '%';
+                const cpuBar = document.getElementById('cpu-bar');
+                cpuBar.style.width = d.cpu.percent + '%';
+                cpuBar.className = 'gauge-fill ' + barColor(d.cpu.percent);
+                // CPU per-core: compact one line
+                const cores = d.cpu.per_core || [];
+                document.getElementById('cpu-detail').textContent = cores.map((v, i) => `C${i+1}:${v.toFixed(0)}%`).join(' ');
+
+                document.getElementById('mem-val').textContent = d.memory.percent.toFixed(1) + '%';
+                const memBar = document.getElementById('mem-bar');
+                memBar.style.width = d.memory.percent + '%';
+                memBar.className = 'gauge-fill ' + (d.memory.percent > 80 ? 'fill-red' : 'fill-blue');
+                document.getElementById('mem-detail').textContent = formatBytes(d.memory.used) + ' / ' + formatBytes(d.memory.total);
+
+                document.getElementById('disk-val').textContent = d.disk.percent.toFixed(1) + '%';
+                const diskBar = document.getElementById('disk-bar');
+                diskBar.style.width = d.disk.percent + '%';
+                diskBar.className = 'gauge-fill ' + barColor(d.disk.percent);
+                document.getElementById('disk-detail').textContent = formatBytes(d.disk.used) + ' / ' + formatBytes(d.disk.total);
+
+                document.getElementById('load-val').textContent = d.cpu.load1;
+                document.getElementById('load-detail').textContent = `1m: ${d.cpu.load1}  5m: ${d.cpu.load5}`;
+                document.getElementById('stat-uptime').textContent = formatUptime(d.uptime);
+
+                // Net speed
+                if (d.io && d.io.net_speed) {
+                    document.getElementById('net-up').textContent = formatSpeed(d.io.net_speed.upload_per_sec);
+                    document.getElementById('net-down').textContent = formatSpeed(d.io.net_speed.download_per_sec);
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        async function refreshMonthlyTraffic() {
+            try {
+                const r = await fetch(API + '/network');
+                const d = await r.json();
+                const MONTHLY_QUOTA = 10 * 1024 * 1024 * 1024 * 1024; // 10TB
+                
+                if (d.monthly) {
+                    const rx = formatBytes(d.monthly.rx);
+                    const tx = formatBytes(d.monthly.tx);
+                    const total = d.monthly.rx + d.monthly.tx;
+                    const used = formatBytes(total);
+                    const percent = ((total / MONTHLY_QUOTA) * 100).toFixed(1);
+                    document.getElementById('net-monthly').textContent = `↓${rx} ↑${tx}`;
+                    document.getElementById('net-quota').textContent = `${used} / 10 TB (${percent}%)`;
+                } else if (d.boot_total) {
+                    const rx = formatBytes(d.boot_total.rx);
+                    const tx = formatBytes(d.boot_total.tx);
+                    const total = d.boot_total.rx + d.boot_total.tx;
+                    const used = formatBytes(total);
+                    const percent = ((total / MONTHLY_QUOTA) * 100).toFixed(1);
+                    const up = formatUptime(d.boot_total.uptime);
+                    document.getElementById('net-monthly').textContent = `开机: ↓${rx} ↑${tx} (${up})`;
+                    document.getElementById('net-quota').textContent = `${used} / 10 TB (${percent}%)`;
+                }
+            } catch(e) {}
+        }
+
+        async function refreshProcesses() {
+            try {
+                const r = await fetch(API + '/processes');
+                const d = await r.json();
+                
+                document.getElementById('cpu-top').innerHTML = (d.top_cpu || []).map(p => `
+                    <div class="proc-item">
+                        <span class="proc-name">${esc(p.name)}</span>
+                        <span class="proc-cpu">${p.cpu}%</span>
+                    </div>
+                `).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
+                
+                document.getElementById('mem-top').innerHTML = (d.top_mem || []).map(p => {
+                    return `<div class="proc-item">
+                        <span class="proc-name">${esc(p.name)}</span>
+                        <span class="proc-mem">${p.mem_mb.toFixed(0)} MB</span>
+                    </div>`;
+                }).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
+            } catch(e) {}
+        }
+
+        async function refreshServices() {
+            try {
+                const r = await fetch(API + '/services');
+                const d = await r.json();
+                const names = {
+                    hermes: 'Hermes',
+                    gateway: 'Gateway',
+                    snell: 'Snell',
+                    ollama: 'Ollama'
+                };
+                document.getElementById('services-card').innerHTML = Object.entries(d).map(([k, v]) => `
+                    <div class="info-row">
+                        <span>${names[k] || k}</span>
+                        <span style="color:${v ? 'var(--success)' : 'var(--danger)'}">● ${v ? '运行中' : '未运行'}</span>
+                    </div>
+                `).join('');
+            } catch(e) {}
+        }
+
+        // === Hermes ===
+        async function loadHermesData() {
+            let modelInfo = { model: '--', provider: '--' };
+            let memInfo = { provider: '--', count: 0 };
+            
+            // Model
+            try {
+                const r = await fetch(API + '/hermes/model');
+                const d = await r.json();
+                modelInfo = { model: d.model || '--', provider: d.provider || '--' };
+                document.getElementById('model-name').textContent = d.model || '--';
+                document.getElementById('model-provider').textContent = 'Provider: ' + (d.provider || '--');
+            } catch(e) {}
+
+            // Platforms
+            try {
+                const r = await fetch(API + '/hermes/platforms');
+                const d = await r.json();
+                const icons = { Telegram: '✈️', QQ: '🐧', '微信': '💬' };
+                document.getElementById('platform-grid').innerHTML = Object.entries(d.platforms || {}).map(([name, online]) => `
+                    <div class="platform-item">
+                        <div class="platform-icon">${icons[name] || '📡'}</div>
+                        <div class="platform-name">${name}</div>
+                        <div class="platform-status ${online ? 'online' : 'offline'}">${online ? '在线' : '离线'}</div>
+                    </div>
+                `).join('');
+            } catch(e) {}
+
+            // Memory count
+            try {
+                const mr = await fetch(API + '/hermes/memory');
+                const md = await mr.json();
+                memInfo = { provider: md.provider || '--', count: md.count || 0 };
+                document.getElementById('stat-memory').textContent = md.count || '--';
+                document.getElementById('stat-mem-queries').textContent = md.today_queries || 0;
+                document.getElementById('stat-mem-writes').textContent = md.today_writes || 0;
+                
+                // 控制动画：值为0时停止
+                const writeBridge = document.getElementById('write-bridge');
+                const queryBridge = document.getElementById('query-bridge');
+                const brain = document.getElementById('stat-brain');
+                
+                const hasWrites = (md.today_writes || 0) > 0;
+                const hasQueries = (md.today_queries || 0) > 0;
+                const hasActivity = hasWrites || hasQueries;
+                
+                writeBridge?.classList.toggle('idle', !hasWrites);
+                queryBridge?.classList.toggle('idle', !hasQueries);
+                brain?.classList.toggle('idle', !hasActivity);
+            } catch(e) {}
+            
+            // 驱动引擎
+            let embedInfo = { engine: '--', models: [], vector_db: '--', active: false };
+            try {
+                const er = await fetch(API + '/hermes/embedding');
+                const ed = await er.json();
+                embedInfo = ed;
+            } catch(e) {}
+
+            const embedModel = embedInfo.models.length > 0 
+                ? embedInfo.models.map(m => m.name).join(', ')
+                : (embedInfo.active ? '无' : '离线');
+
+            const engines = [
+                { name: 'LLM', value: modelInfo.model, icon: '🤖' },
+                { name: '记忆', value: memInfo.provider, icon: '💾' },
+                { name: '向量引擎', value: embedInfo.engine + ' · ' + embedModel, icon: '🧮' },
+                { name: '向量库', value: embedInfo.vector_db, icon: '🔎' },
+            ];
+            document.getElementById('engine-list').innerHTML = engines.map(e => `
+                <div class="info-row">
+                    <span>${e.icon} ${e.name}</span>
+                    <span style="color:var(--accent);font-size:12px">${e.value}</span>
+                </div>
+            `).join('');
+        }
+
+        // === Maintenance ===
+        let opsHistory = [];
+
+        function logOps(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString('zh-CN');
+            opsHistory.unshift(`[${time}] ${msg}`);
+            if (opsHistory.length > 10) opsHistory.pop();
+            const colors = { info: 'var(--text)', success: 'var(--success)', error: 'var(--danger)' };
+            document.getElementById('ops-log').innerHTML = opsHistory.map(m => 
+                `<div style="color:${colors[type] || 'var(--text)'};font-size:12px;padding:4px 0">${m}</div>`
+            ).join('');
+        }
+
+        async function emergencyRestart() {
+            if (!confirm('⚠️ 确定要执行紧急重启吗？\n\n这将杀掉所有 Hermes 相关进程并重启 Gateway。')) return;
+            logOps('🚨 执行紧急重启...', 'info');
+            try {
+                const body = opsPassword ? { ops_password: opsPassword } : {};
+                const r = await fetch(API + '/ops/emergency-restart', {
+                    method: 'POST',
+                    headers: { 'X-API-Token': TOKEN, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const d = await r.json();
+                if (d.results) {
+                    d.results.forEach(res => logOps(res, res.includes('✅') ? 'success' : 'info'));
+                    logOps('✅ 紧急重启完成', 'success');
+                } else {
+                    logOps('❌ ' + (d.error || '未知错误'), 'error');
+                }
+            } catch(e) {
+                logOps('❌ 请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function restartService(service) {
+            logOps(`🔄 重启 ${service}...`, 'info');
+            try {
+                const body = { service };
+                if (opsPassword) body.ops_password = opsPassword;
+                const r = await fetch(API + '/ops/restart-service', {
+                    method: 'POST',
+                    headers: { 'X-API-Token': TOKEN, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const d = await r.json();
+                if (d.exit_code === 0) {
+                    logOps(`✅ ${service} 重启成功`, 'success');
+                } else {
+                    logOps(`❌ ${service} 重启失败`, 'error');
+                }
+            } catch(e) {
+                logOps('❌ 请求失败: ' + e.message, 'error');
+            }
+        }
+
+        // === Init ===
+        refreshMonitor();
+        refreshProcesses();
+        refreshServices();
+        refreshMonthlyTraffic();
+        loadHermesData();
+        checkOpsAccess();
+
+        setInterval(refreshMonitor, 5000);
+        setInterval(refreshProcesses, 5000);
+        setInterval(refreshServices, 15000);
+        setInterval(refreshMonthlyTraffic, 30000);
+        setInterval(loadHermesData, 30000);
+
+        // 当前时间显示（每秒更新）
+        function updateCurrentTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleTimeString('zh-CN');
+        }
+        updateCurrentTime();
+        setInterval(updateCurrentTime, 1000);
+
+        // === 维护页面访问控制 ===
+        let opsAuthenticated = false;
+        let opsPassword = '';
+
+        async function checkOpsAccess() {
+            try {
+                const r = await fetch(API + '/ops/check-access');
+                const d = await r.json();
+                if (d.allowed) {
+                    // IP 白名单，直接显示操作面板
+                    opsAuthenticated = true;
+                    document.getElementById('ops-panel').style.display = 'block';
+                    document.getElementById('ops-login').style.display = 'none';
+                } else {
+                    // 需要密码验证
+                    document.getElementById('ops-login').style.display = 'block';
+                    document.getElementById('ops-panel').style.display = 'none';
+                    document.getElementById('ops-ip-msg').textContent = `您的 IP (${d.ip}) 无权访问，请输入密码`;
+                }
+            } catch(e) {
+                document.getElementById('ops-login').style.display = 'block';
+                document.getElementById('ops-ip-msg').textContent = '无法验证访问权限，请输入密码';
+            }
+        }
+
+        async function submitOpsPassword() {
+            const input = document.getElementById('ops-password-input');
+            const pwd = input.value.trim();
+            if (!pwd) return;
+            try {
+                const r = await fetch(API + '/ops/verify-password', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password: pwd})
+                });
+                const d = await r.json();
+                if (d.success) {
+                    opsAuthenticated = true;
+                    opsPassword = pwd;
+                    document.getElementById('ops-panel').style.display = 'block';
+                    document.getElementById('ops-login').style.display = 'none';
+                } else {
+                    input.value = '';
+                    input.style.borderColor = '#ef4444';
+                    setTimeout(() => input.style.borderColor = '', 1500);
+                }
+            } catch(e) {}
+        }
+    </script>
+</body>
+</html>
