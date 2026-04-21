@@ -746,6 +746,88 @@ def restart_service():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/stream')
+def stream():
+    """SSE 实时推送仪表盘数据"""
+    _preheat_cpu()  # 预热 CPU 采样
+    def generate():
+        while True:
+            try:
+                # 复用 dashboard 逻辑
+                result = {'timestamp': int(time.time() * 1000)}
+                
+                # 系统数据
+                cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+                cpu_percent = sum(cpu_per_core) / len(cpu_per_core)
+                load = os.getloadavg()
+                mem = psutil.virtual_memory()
+                disk = psutil.disk_usage('/')
+                uptime = int(time.time() - psutil.boot_time())
+                io_stats = get_cached_io_stats()
+                
+                result['system'] = {
+                    'cpu': {'percent': cpu_percent, 'per_core': cpu_per_core, 'load1': float(load[0]), 'load5': float(load[1])},
+                    'memory': {'percent': mem.percent, 'used': mem.used, 'total': mem.total},
+                    'disk': {'percent': disk.percent, 'used': disk.used, 'total': disk.total},
+                    'uptime': uptime,
+                    'io': io_stats
+                }
+                
+                # 进程数据
+                procs = []
+                for p in psutil.process_iter(['name', 'cpu_percent', 'memory_info']):
+                    try:
+                        cpu = p.info['cpu_percent'] or 0
+                        mem_bytes = p.info['memory_info'].rss if p.info['memory_info'] else 0
+                        procs.append({'name': p.info['name'], 'cpu': cpu, 'memory': mem_bytes})
+                    except:
+                        pass
+                result['processes'] = {
+                    'cpu_top': sorted(procs, key=lambda x: x['cpu'], reverse=True)[:5],
+                    'mem_top': sorted(procs, key=lambda x: x['memory'], reverse=True)[:5]
+                }
+                
+                # 服务状态
+                services = ['gateway', 'hermes', 'ollama', 'snell']
+                svc_result = []
+                for svc in services:
+                    try:
+                        if svc == 'snell':
+                            r = subprocess.run(['systemctl', 'is-active', 'snell'], capture_output=True, text=True, timeout=2)
+                            active = r.stdout.strip() == 'active'
+                        elif svc == 'gateway':
+                            r = subprocess.run(['systemctl', '--user', 'is-active', 'hermes-gateway'],
+                                               capture_output=True, text=True, timeout=2, env=get_user_env())
+                            active = r.stdout.strip() == 'active'
+                        elif svc == 'hermes':
+                            r = subprocess.run(['hermes', 'status'], capture_output=True, text=True, timeout=10, env=get_user_env())
+                            active = r.returncode == 0
+                        elif svc == 'ollama':
+                            r = subprocess.run(['systemctl', 'is-active', 'ollama'], capture_output=True, text=True, timeout=2)
+                            active = r.stdout.strip() == 'active'
+                        else:
+                            active = False
+                        svc_result.append({'name': svc, 'status': 'running' if active else 'stopped'})
+                    except:
+                        svc_result.append({'name': svc, 'status': 'unknown'})
+                result['services'] = svc_result
+                
+                yield f"data: {json.dumps(result)}\n\n"
+                
+            except GeneratorExit:
+                # 客户端断开连接
+                break
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            
+            time.sleep(3)
+    
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'  # 禁用 nginx 缓冲
+    })
+
+
 @app.route('/api/dashboard')
 def dashboard():
     """一次性返回所有仪表盘数据，减少请求数"""
