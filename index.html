@@ -738,6 +738,35 @@
         let _networkTimer = null;
         let _hermesTimer = null;
         let _pageVisible = true;
+        const _animating = {}; // 数值动画锁
+
+        // 数值平滑过渡
+        function animateValue(el, newVal, duration = 600) {
+            const id = el.id;
+            if (_animating[id]) return; // 防重入
+            const text = el.textContent;
+            const oldVal = parseFloat(text);
+            if (isNaN(oldVal) || Math.abs(oldVal - newVal) < 0.05) {
+                el.textContent = newVal.toFixed(1) + '%';
+                return;
+            }
+            _animating[id] = true;
+            const start = performance.now();
+            const suffix = text.includes('MB') ? ' MB' : text.includes('%') ? '%' : '';
+            function step(now) {
+                const progress = Math.min((now - start) / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+                const current = oldVal + (newVal - oldVal) * eased;
+                el.textContent = current.toFixed(1) + suffix;
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    el.textContent = newVal.toFixed(1) + suffix;
+                    delete _animating[id];
+                }
+            }
+            requestAnimationFrame(step);
+        }
 
         // 页面可见性检测 - 隐藏时暂停刷新
         document.addEventListener('visibilitychange', () => {
@@ -752,9 +781,9 @@
 
         function startTimers() {
             stopTimers();
-            _refreshTimer = setInterval(refreshDashboard, 5000);
-            _networkTimer = setInterval(refreshMonthlyTraffic, 30000);
-            _hermesTimer = setInterval(loadHermesData, 30000);
+            _refreshTimer = setInterval(refreshDashboard, 3000);
+            _networkTimer = setInterval(refreshMonthlyTraffic, 60000);
+            _hermesTimer = setInterval(loadHermesData, 60000);
         }
         function stopTimers() {
             clearInterval(_refreshTimer);
