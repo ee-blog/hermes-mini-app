@@ -7,6 +7,8 @@ import subprocess
 import time
 import json
 import re
+import yaml
+import urllib.request
 import psutil
 from flask import Flask, jsonify, request, Response, send_from_directory
 from functools import wraps
@@ -303,13 +305,17 @@ def services_status():
     except:
         services['hermes'] = False
     
-    # Ollama
+    # Llama.cpp services
     try:
-        result = subprocess.run(['systemctl', 'is-active', 'ollama'],
-                                capture_output=True, text=True, timeout=5)
-        services['ollama'] = result.stdout.strip() == 'active'
+        r1 = subprocess.run(['systemctl', 'is-active', 'llama-cpp-chat'],
+                            capture_output=True, text=True, timeout=5)
+        r2 = subprocess.run(['systemctl', 'is-active', 'llama-cpp-embed'],
+                            capture_output=True, text=True, timeout=5)
+        services['llama-cpp-chat'] = r1.stdout.strip() == 'active'
+        services['llama-cpp-embed'] = r2.stdout.strip() == 'active'
     except:
-        services['ollama'] = False
+        services['llama-cpp-chat'] = False
+        services['llama-cpp-embed'] = False
     
     return jsonify(services)
 
@@ -599,16 +605,23 @@ def hermes_summary():
     """Hermes 选项卡数据整合 — 单一请求返回所有数据"""
     result = {'model': {'model': '--', 'provider': '--'}, 'platforms': {}, 'memory': {}, 'embedding': {}}
     
-    # Model
+    # Model — 从 config.yaml 读取 Hermes 会话默认模型
     try:
-        cfg = subprocess.run(['hermes', 'config'], capture_output=True, text=True, timeout=15, env=get_user_env())
-        model_m = re.search(r"'model':\s*'([^']*)'", cfg.stdout)
-        provider_m = re.search(r"'provider':\s*'([^']*)'", cfg.stdout)
+        cfg_path = os.path.expanduser('~/.hermes/config.yaml')
+        with open(cfg_path, 'r') as f:
+            cfg = yaml.safe_load(f)
+        m = cfg.get('model', {})
+        default_model = m.get('default', '--')
+        provider = m.get('provider', '--')
+        # provider 格式可能是 "custom:tencent-coding-plan"，提取名字
+        if ':' in provider:
+            provider = provider.split(':')[1]
         result['model'] = {
-            'model': model_m.group(1) if model_m else '--',
-            'provider': provider_m.group(1) if provider_m else '--'
+            'model': default_model,
+            'provider': provider
         }
-    except: pass
+    except Exception as e:
+        result['model']['error'] = str(e)
     
     # Platforms
     try:
@@ -628,17 +641,23 @@ def hermes_summary():
         result['memory'].update(_get_memory_engine_stats())
     except: pass
     
-    # Embedding
+    # Embedding (llama.cpp)
     try:
-        ollama_active = subprocess.run(['pgrep', '-x', 'ollama'], capture_output=True, timeout=5).returncode == 0
+        embed_active = subprocess.run(['systemctl', 'is-active', 'llama-cpp-embed'], capture_output=True, text=True, timeout=5).stdout.strip() == 'active'
         models = []
-        if ollama_active:
-            ol = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=10)
-            for line in ol.stdout.strip().split('\n')[1:]:
-                parts = line.split()
-                if len(parts) >= 3 and 'embedding' in parts[0].lower():
-                    models.append({'name': parts[0], 'size': parts[2]})
-        result['embedding'] = {'engine': 'Ollama (本地)', 'active': ollama_active, 'models': models, 'vector_db': 'Qdrant (本地)'}
+        if embed_active:
+            try:
+                req = urllib.request.Request('http://127.0.0.1:8081/v1/models')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdata = json.loads(resp.read())
+                    for m in mdata.get('data', []):
+                        # 提取模型大小如 0.6B, 1.7B
+                        full_name = m.get('id', 'unknown')
+                        size_match = re.search(r'(\d+\.\d+B|\d+B)', full_name)
+                        name = size_match.group(1) if size_match else full_name.replace('.gguf', '')
+                        models.append({'name': name, 'size': ''})
+            except: pass
+        result['embedding'] = {'engine': 'llama.cpp', 'active': embed_active, 'models': models, 'vector_db': 'Qdrant'}
     except: pass
     
     return jsonify(result)
@@ -646,26 +665,31 @@ def hermes_summary():
 
 @app.route('/api/hermes/embedding')
 def hermes_embedding_info():
-    """获取向量引擎信息 (Ollama + embedding 模型)"""
+    """获取向量引擎信息 (llama.cpp embedding 模型)"""
     try:
-        # 检查 Ollama 状态
-        ollama_active = subprocess.run(
-            ['pgrep', '-x', 'ollama'], capture_output=True, timeout=5
-        ).returncode == 0
+        embed_active = subprocess.run(
+            ['systemctl', 'is-active', 'llama-cpp-embed'], capture_output=True, text=True, timeout=5
+        ).stdout.strip() == 'active'
         
         models = []
-        if ollama_active:
-            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=10)
-            for line in result.stdout.strip().split('\n')[1:]:  # 跳过表头
-                parts = line.split()
-                if len(parts) >= 3 and 'embedding' in parts[0].lower():
-                    models.append({'name': parts[0], 'size': parts[2]})
+        if embed_active:
+            try:
+                req = urllib.request.Request('http://127.0.0.1:8081/v1/models')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdata = json.loads(resp.read())
+                    for m in mdata.get('data', []):
+                        # 提取模型大小如 0.6B, 1.7B
+                        full_name = m.get('id', 'unknown')
+                        size_match = re.search(r'(\d+\.\d+B|\d+B)', full_name)
+                        name = size_match.group(1) if size_match else full_name.replace('.gguf', '')
+                        models.append({'name': name, 'size': ''})
+            except: pass
         
         return jsonify({
-            'engine': 'Ollama (本地)',
-            'active': ollama_active,
+            'engine': 'llama.cpp',
+            'active': embed_active,
             'models': models,
-            'vector_db': 'Qdrant (本地)'
+            'vector_db': 'Qdrant'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -702,7 +726,8 @@ ALLOWED_COMMANDS = {
     'nginx_reload': ['sudo', 'systemctl', 'reload', 'nginx'],
     'nginx_restart': ['sudo', 'systemctl', 'restart', 'nginx'],
     'miniapp_restart': ['sudo', 'systemctl', 'restart', 'hermes-mini-app'],
-    'ollama_restart': ['sudo', 'systemctl', 'restart', 'ollama'],
+    'llama_cpp_chat_restart': ['sudo', 'systemctl', 'restart', 'llama-cpp-chat'],
+    'llama_cpp_embed_restart': ['sudo', 'systemctl', 'restart', 'llama-cpp-embed'],
     
     'journalctl_gateway': ['journalctl', '--user', '-u', 'hermes-gateway', '-n', '30', '--no-pager'],
     'df': ['df', '-h'],
@@ -811,7 +836,8 @@ def restart_service():
         'gateway': (['systemctl', '--user', 'restart', 'hermes-gateway'], True),
         'nginx': (['sudo', 'systemctl', 'restart', 'nginx'], False),
         'miniapp': (['sudo', 'systemctl', 'restart', 'hermes-mini-app'], False),
-        'ollama': (['sudo', 'systemctl', 'restart', 'ollama'], False),
+        'llama-cpp-chat': (['sudo', 'systemctl', 'restart', 'llama-cpp-chat'], False),
+        'llama-cpp-embed': (['sudo', 'systemctl', 'restart', 'llama-cpp-embed'], False),
     }
     
     if service not in service_map:
@@ -872,7 +898,7 @@ def stream():
                 }
                 
                 # 服务状态
-                services = ['gateway', 'hermes', 'ollama']
+                services = ['gateway', 'hermes', 'llama-cpp-chat', 'llama-cpp-embed']
                 svc_result = []
                 for svc in services:
                     try:
@@ -883,11 +909,9 @@ def stream():
                         elif svc == 'hermes':
                             r = subprocess.run(['hermes', 'status'], capture_output=True, text=True, timeout=10, env=get_user_env())
                             active = r.returncode == 0
-                        elif svc == 'ollama':
-                            r = subprocess.run(['systemctl', 'is-active', 'ollama'], capture_output=True, text=True, timeout=2)
-                            active = r.stdout.strip() == 'active'
                         else:
-                            active = False
+                            r = subprocess.run(['systemctl', 'is-active', svc], capture_output=True, text=True, timeout=2)
+                            active = r.stdout.strip() == 'active'
                         svc_result.append({'name': svc, 'status': 'running' if active else 'stopped'})
                     except:
                         svc_result.append({'name': svc, 'status': 'unknown'})
@@ -950,7 +974,7 @@ def dashboard():
         }
         
         # 服务状态
-        services = ['gateway', 'hermes', 'ollama']
+        services = ['gateway', 'hermes', 'llama-cpp-chat', 'llama-cpp-embed']
         svc_result = []
         for svc in services:
             try:
@@ -961,11 +985,9 @@ def dashboard():
                 elif svc == 'hermes':
                     r = subprocess.run(['hermes', 'status'], capture_output=True, text=True, timeout=10, env=get_user_env())
                     active = r.returncode == 0
-                elif svc == 'ollama':
-                    r = subprocess.run(['systemctl', 'is-active', 'ollama'], capture_output=True, text=True, timeout=2)
-                    active = r.stdout.strip() == 'active'
                 else:
-                    active = False
+                    r = subprocess.run(['systemctl', 'is-active', svc], capture_output=True, text=True, timeout=2)
+                    active = r.stdout.strip() == 'active'
                 svc_result.append({'name': svc, 'status': 'running' if active else 'stopped'})
             except:
                 svc_result.append({'name': svc, 'status': 'unknown'})
@@ -974,6 +996,55 @@ def dashboard():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chat/gemma', methods=['POST'])
+def chat_gemma():
+    """Qwen3 聊天 — SSE 流式响应 (llama.cpp OpenAI兼容)"""
+    data = request.get_json(silent=True) or {}
+    messages = data.get('messages', [])
+    if not messages:
+        return jsonify({'error': 'messages is required'}), 400
+
+    llm_url = os.environ.get('LLM_URL', 'http://127.0.0.1:8080')
+    chat_model = os.environ.get('CHAT_MODEL', 'Qwen3-1.7B-Q8_0')
+
+    def generate():
+        try:
+            payload = json.dumps({
+                'model': chat_model,
+                'messages': messages,
+                'stream': True
+            })
+            req = urllib.request.Request(
+                f'{llm_url}/v1/chat/completions',
+                data=payload.encode(),
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                for line in resp:
+                    line = line.strip()
+                    if not line or not line.startswith(b'data: '):
+                        continue
+                    data_str = line[6:]  # skip "data: "
+                    if data_str == b'[DONE]':
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get('choices', [{}])[0].get('delta', {})
+                        content = delta.get('content', '')
+                        if content:
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                    except: pass
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+    })
 
 
 @app.route('/api/blog-widget', methods=['GET', 'OPTIONS'])
