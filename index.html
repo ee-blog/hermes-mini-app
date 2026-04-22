@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hermes Control Panel</title>
+    <title>奕奕Blog丨Hermes Control</title>
+    <link rel="icon" href="https://www.eebk.com/favicon.ico">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -136,6 +137,7 @@
 
         .proc-item {
             display: flex;
+            justify-content: space-between;
             align-items: center;
             padding: 7px 0;
             border-bottom: 1px solid rgba(255,255,255,0.05);
@@ -459,6 +461,7 @@
         #page-monitor.active > div:first-child { grid-column: 1 / -1; }
         .gauge-grid { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); gap: 12px; }
         #page-monitor.active .uptime-bar { grid-column: 1 / -1; }
+        #page-monitor.active .bottom-cards-grid { grid-column: 1 / -1; }
         .gauge-card { padding: 14px; }
         .gauge-value { font-size: 20px; }
         .card { padding: 14px; }
@@ -476,6 +479,54 @@
         .app-header h1 { font-size: 18px; font-weight: 600; text-align: center; margin-bottom: 4px; }
         .app-header p { font-size: 11px; color: #6b7280; text-align: center; }
     }
+    /* 骨架屏样式 */
+    .skeleton {
+        background: linear-gradient(90deg, var(--bg2) 25%, rgba(255,255,255,0.08) 50%, var(--bg2) 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 6px;
+        min-height: 1em;
+        min-width: 3em;
+    }
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    .skeleton-text { height: 14px; margin: 6px 0; }
+    .skeleton-text.sm { width: 60%; }
+    .skeleton-text.lg { width: 80%; }
+    .skeleton-row { display: flex; justify-content: space-between; padding: 8px 0; }
+    .skeleton-row .skeleton { flex: 1; margin: 0 4px; }
+    /* 底部4卡片两列布局 */
+    .bottom-cards-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .bottom-cards-grid .card {
+        margin-bottom: 0;
+        height: 140px;
+        overflow: hidden;
+        position: relative;
+    }
+    /* 紧凑内部间距 */
+    .bottom-cards-grid .section-title { margin-bottom: 6px; }
+    .bottom-cards-grid .traffic-row { padding: 5px 0; }
+    .bottom-cards-grid .info-row { padding: 5px 0; }
+    .bottom-cards-grid .proc-item { padding: 5px 0; }
+    /* 进程名渐变消失 */
+    .bottom-cards-grid .proc-name {
+        flex: 1;
+        max-width: 90px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+    .bottom-cards-grid .proc-cpu { min-width: 40px; text-align: right; }
+    .bottom-cards-grid .proc-mem { min-width: 44px; text-align: right; }
+    /* 网络流量紧凑 */
+    .bottom-cards-grid .traffic-value { font-size: 12px; }
     </style>
 
 </head>
@@ -537,6 +588,7 @@
             </div>
         </div>
 
+        <div class="bottom-cards-grid">
         <div class="card" id="traffic-card">
             <div class="section-title">网络流量</div>
             <div class="traffic-row">
@@ -548,20 +600,32 @@
                 <span class="traffic-value down" id="net-down">--</span>
             </div>
             <div class="traffic-row">
-                <span class="traffic-label">本月流量</span>
-                <span class="traffic-value" id="net-monthly">--</span>
-            </div>
-            <div class="traffic-row">
-                <span class="traffic-label">月度额度</span>
+                <span class="traffic-label">月额度</span>
                 <span class="traffic-value" id="net-quota">--</span>
             </div>
         </div>
 
-        <div class="card" id="services-card"><div class="section-title">服务状态</div>加载中...</div>
+        <div class="card" id="services-card">
+            <div class="section-title">服务状态</div>
+            <div class="skeleton skeleton-text lg"></div>
+            <div class="skeleton skeleton-text sm"></div>
+            <div class="skeleton skeleton-text lg"></div>
+        </div>
 
-        <div class="card" id="cpu-top"><div class="section-title">CPU TOP</div>加载中...</div>
+        <div class="card" id="cpu-top">
+            <div class="section-title">CPU TOP</div>
+            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
+            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
+            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
+        </div>
 
-        <div class="card" id="mem-top"><div class="section-title">内存 TOP</div>加载中...</div>
+        <div class="card" id="mem-top">
+            <div class="section-title">内存 TOP</div>
+            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
+            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
+            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
+        </div>
+        </div>
 
         <div class="uptime-bar">
             <span class="uptime-heartbeat">♥</span>
@@ -583,12 +647,21 @@
 
         <div class="card">
             <div style="font-size:14px;font-weight:600;margin-bottom:10px">⚙️ 驱动引擎</div>
-            <div id="engine-list">加载中...</div>
+            <div id="engine-list">
+                <div class="info-row"><span>🤖 LLM</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>💾 记忆</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>🧮 向量引擎</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>🔎 向量库</span><span style="color:var(--hint)">--</span></div>
+            </div>
         </div>
 
         <div class="card">
             <div style="font-size:14px;font-weight:600;margin-bottom:10px">🔗 平台连接</div>
-            <div class="platform-grid" id="platform-grid">加载中...</div>
+            <div class="platform-grid" id="platform-grid">
+                <div class="platform-item"><div class="platform-icon">✈️</div><div class="platform-name">Telegram</div><div class="platform-status">--</div></div>
+                <div class="platform-item"><div class="platform-icon">🐧</div><div class="platform-name">QQ</div><div class="platform-status">--</div></div>
+                <div class="platform-item"><div class="platform-icon">💬</div><div class="platform-name">微信</div><div class="platform-status">--</div></div>
+            </div>
         </div>
 
         <div class="section-title">🧠 记忆引擎</div>
@@ -852,22 +925,24 @@
             
             // Processes
             const proc = d.processes;
-            document.getElementById('cpu-top').innerHTML = '<div class="section-title">CPU TOP</div>' + (proc.cpu_top || []).map(p => `
+            document.getElementById('cpu-top').innerHTML = '<div class="section-title">CPU TOP</div>' + (proc.cpu_top || []).slice(0,3).map(p => `
                 <div class="proc-item">
                     <span class="proc-name">${esc(p.name)}</span>
                     <span class="proc-cpu">${p.cpu}%</span>
                 </div>
             `).join('') || '<div class="section-title">CPU TOP</div><div style="color:var(--hint);font-size:11px">无数据</div>';
             
-            document.getElementById('mem-top').innerHTML = '<div class="section-title">内存 TOP</div>' + (proc.mem_top || []).map(p => {
+            document.getElementById('mem-top').innerHTML = '<div class="section-title">内存 TOP</div>' + (proc.mem_top || []).slice(0,3).map(p => {
+                const mb = p.memory / 1048576;
+                const memStr = mb >= 1024 ? (mb/1024).toFixed(1)+'G' : mb.toFixed(0)+'M';
                 return `<div class="proc-item">
                     <span class="proc-name">${esc(p.name)}</span>
-                    <span class="proc-mem">${(p.memory / 1048576).toFixed(0)} MB</span>
+                    <span class="proc-mem">${memStr}</span>
                 </div>`;
             }).join('') || '<div class="section-title">内存 TOP</div><div style="color:var(--hint);font-size:11px">无数据</div>';
             
             // Services
-            const names = { hermes: 'Hermes', gateway: 'Gateway', snell: 'Snell', ollama: 'Ollama' };
+            const names = { hermes: 'Hermes', gateway: 'Gateway', ollama: 'Ollama' };
             document.getElementById('services-card').innerHTML = '<div class="section-title">服务状态</div>' + (d.services || []).map(svc => `
                 <div class="info-row">
                     <span>${names[svc.name] || svc.name}</span>
@@ -883,43 +958,30 @@
                 const MONTHLY_QUOTA = 10 * 1024 * 1024 * 1024 * 1024; // 10TB
                 
                 if (d.monthly) {
-                    const rx = formatBytes(d.monthly.rx);
-                    const tx = formatBytes(d.monthly.tx);
                     const total = d.monthly.rx + d.monthly.tx;
-                    const used = formatBytes(total);
+                    const used = formatBytes(total).replace(' ', '');
                     const percent = ((total / MONTHLY_QUOTA) * 100).toFixed(1);
-                    document.getElementById('net-monthly').textContent = `↓${rx} ↑${tx}`;
-                    document.getElementById('net-quota').textContent = `${used} / 10 TB (${percent}%)`;
+                    document.getElementById('net-quota').textContent = `${used}/10T (${percent}%)`;
                 } else if (d.boot_total) {
-                    const rx = formatBytes(d.boot_total.rx);
-                    const tx = formatBytes(d.boot_total.tx);
                     const total = d.boot_total.rx + d.boot_total.tx;
-                    const used = formatBytes(total);
+                    const used = formatBytes(total).replace(' ', '');
                     const percent = ((total / MONTHLY_QUOTA) * 100).toFixed(1);
-                    const up = formatUptime(d.boot_total.uptime);
-                    document.getElementById('net-monthly').textContent = `开机: ↓${rx} ↑${tx} (${up})`;
-                    document.getElementById('net-quota').textContent = `${used} / 10 TB (${percent}%)`;
+                    document.getElementById('net-quota').textContent = `${used}/10T (${percent}%)`;
                 }
             } catch(e) {}
         }
 
         async function loadHermesData() {
-            let modelInfo = { model: '--', provider: '--' };
-            let memInfo = { provider: '--', count: 0 };
-            
-            // Model
             try {
-                const r = await fetch(API + '/hermes/model');
+                const r = await fetch(API + '/hermes/summary');
                 const d = await r.json();
-                modelInfo = { model: d.model || '--', provider: d.provider || '--' };
-                document.getElementById('model-name').textContent = d.model || '--';
-                document.getElementById('model-provider').textContent = 'Provider: ' + (d.provider || '--');
-            } catch(e) {}
-
-            // Platforms
-            try {
-                const r = await fetch(API + '/hermes/platforms');
-                const d = await r.json();
+                
+                // Model
+                const modelInfo = d.model || { model: '--', provider: '--' };
+                document.getElementById('model-name').textContent = modelInfo.model || '--';
+                document.getElementById('model-provider').textContent = 'Provider: ' + (modelInfo.provider || '--');
+                
+                // Platforms
                 const icons = { Telegram: '✈️', QQ: '🐧', '微信': '💬' };
                 document.getElementById('platform-grid').innerHTML = Object.entries(d.platforms || {}).map(([name, online]) => `
                     <div class="platform-item">
@@ -928,55 +990,40 @@
                         <div class="platform-status ${online ? 'online' : 'offline'}">${online ? '在线' : '离线'}</div>
                     </div>
                 `).join('');
-            } catch(e) {}
-
-            // Memory count
-            try {
-                const mr = await fetch(API + '/hermes/memory');
-                const md = await mr.json();
-                memInfo = { provider: md.provider || '--', count: md.count || 0 };
-                document.getElementById('stat-memory').textContent = md.count || '--';
-                document.getElementById('stat-mem-queries').textContent = md.today_queries || 0;
-                document.getElementById('stat-mem-writes').textContent = md.today_writes || 0;
                 
-                // 控制动画：值为0时停止
-                const writeBridge = document.getElementById('write-bridge');
-                const queryBridge = document.getElementById('query-bridge');
-                const brain = document.getElementById('stat-brain');
+                // Memory
+                const memInfo = d.memory || {};
+                document.getElementById('stat-memory').textContent = memInfo.total || '--';
+                document.getElementById('stat-mem-queries').textContent = memInfo.today_queries || 0;
+                document.getElementById('stat-mem-writes').textContent = memInfo.today_writes || 0;
                 
-                const hasWrites = (md.today_writes || 0) > 0;
-                const hasQueries = (md.today_queries || 0) > 0;
+                const hasWrites = (memInfo.today_writes || 0) > 0;
+                const hasQueries = (memInfo.today_queries || 0) > 0;
                 const hasActivity = hasWrites || hasQueries;
                 
-                writeBridge?.classList.toggle('idle', !hasWrites);
-                queryBridge?.classList.toggle('idle', !hasQueries);
-                brain?.classList.toggle('idle', !hasActivity);
-            } catch(e) {}
-            
-            // 驱动引擎
-            let embedInfo = { engine: '--', models: [], vector_db: '--', active: false };
-            try {
-                const er = await fetch(API + '/hermes/embedding');
-                const ed = await er.json();
-                embedInfo = ed;
-            } catch(e) {}
+                document.getElementById('write-bridge')?.classList.toggle('idle', !hasWrites);
+                document.getElementById('query-bridge')?.classList.toggle('idle', !hasQueries);
+                document.getElementById('stat-brain')?.classList.toggle('idle', !hasActivity);
+                
+                // Embedding
+                const embedInfo = d.embedding || { engine: '--', models: [], vector_db: '--', active: false };
+                const embedModel = embedInfo.models.length > 0 
+                    ? embedInfo.models.map(m => m.name).join(', ')
+                    : (embedInfo.active ? '无' : '离线');
 
-            const embedModel = embedInfo.models.length > 0 
-                ? embedInfo.models.map(m => m.name).join(', ')
-                : (embedInfo.active ? '无' : '离线');
-
-            const engines = [
-                { name: 'LLM', value: modelInfo.model, icon: '🤖' },
-                { name: '记忆', value: memInfo.provider, icon: '💾' },
-                { name: '向量引擎', value: embedInfo.engine + ' · ' + embedModel, icon: '🧮' },
-                { name: '向量库', value: embedInfo.vector_db, icon: '🔎' },
-            ];
-            document.getElementById('engine-list').innerHTML = engines.map(e => `
-                <div class="info-row">
-                    <span>${e.icon} ${e.name}</span>
-                    <span style="color:var(--accent);font-size:12px">${e.value}</span>
-                </div>
-            `).join('');
+                const engines = [
+                    { name: 'LLM', value: modelInfo.model, icon: '🤖' },
+                    { name: '记忆', value: memInfo.provider || '--', icon: '💾' },
+                    { name: '向量引擎', value: embedInfo.engine + ' · ' + embedModel, icon: '🧮' },
+                    { name: '向量库', value: embedInfo.vector_db, icon: '🔎' },
+                ];
+                document.getElementById('engine-list').innerHTML = engines.map(e => `
+                    <div class="info-row">
+                        <span>${e.icon} ${e.name}</span>
+                        <span style="color:var(--accent);font-size:12px">${e.value}</span>
+                    </div>
+                `).join('');
+            } catch(e) {}
         }
 
         // === Maintenance ===

@@ -1,0 +1,600 @@
+:root {
+            --bg: var(--tg-theme-bg-color, #0f0f1a);
+            --bg2: var(--tg-theme-secondary-bg-color, #1a1a2e);
+            --text: var(--tg-theme-text-color, #e0e0e0);
+            --hint: var(--tg-theme-hint-color, #6b7280);
+            --accent: var(--tg-theme-button-color, #5288c1);
+            --accent-text: var(--tg-theme-button-text-color, #fff);
+            --link: var(--tg-theme-link-color, #64b5f6);
+            --danger: #ef4444;
+            --success: #22c55e;
+            --warn: #f59e0b;
+            --radius: 12px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .tab-nav {
+            display: flex;
+            background: var(--bg2);
+            position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 14px 8px;
+            border: none;
+            background: none;
+            color: var(--hint);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+        .tab-btn.active { color: var(--accent); }
+        .tab-btn .tab-icon { font-size: 18px; }
+
+        .page { display: none; padding: 14px; max-width: 480px; margin: 0 auto; }
+        .page.active { display: block; }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(34,197,94,0.15);
+            color: var(--success);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+        .section-title {
+            font-size: 12px;
+            color: var(--hint);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 18px 0 10px;
+        }
+
+        .card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 14px;
+            margin-bottom: 10px;
+        }
+
+        .gauge-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .gauge-card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 14px;
+        }
+        .gauge-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .gauge-label { font-size: 12px; color: var(--hint); }
+        .gauge-value { font-size: 20px; font-weight: 700; }
+        .gauge-bar {
+            height: 5px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+        .gauge-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+        .fill-green { background: linear-gradient(90deg, #22c55e, #4ade80); }
+        .fill-yellow { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .fill-red { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .fill-blue { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+        .info-row + .info-row { border-top: 1px solid rgba(255,255,255,0.05); }
+
+        .proc-item {
+            display: flex;
+            align-items: center;
+            padding: 7px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 12px;
+        }
+        .proc-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin: 0 8px;
+        }
+        .proc-cpu { color: var(--success); min-width: 38px; text-align: right; }
+        .proc-mem { color: var(--link); min-width: 48px; text-align: right; }
+
+        .model-card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .model-icon { font-size: 28px; }
+        .model-info { flex: 1; }
+        .model-name { font-weight: 600; font-size: 15px; }
+        .model-provider { font-size: 11px; color: var(--hint); margin-top: 2px; }
+
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .platform-item {
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+            padding: 10px 6px;
+            text-align: center;
+        }
+        .platform-icon { font-size: 22px; margin-bottom: 4px; }
+        .platform-name { font-size: 11px; color: var(--hint); }
+        .platform-status { font-weight: 600; font-size: 12px; margin-top: 3px; }
+        .platform-status.online { color: var(--success); }
+        .platform-status.offline { color: var(--danger); }
+
+        .stats-row {
+            display: flex;
+            gap: 8px;
+        }
+        .stat-box {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-num { font-size: 22px; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 10px; color: var(--hint); margin-top: 2px; }
+
+        /* Memory Stats Grid */
+        .memory-stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 40px 1.2fr;
+            gap: 0;
+            position: relative;
+        }
+        .memory-left {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .memory-row {
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 14px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        #stat-writes-box {
+            background: linear-gradient(135deg, rgba(249,115,22,0.12), rgba(249,115,22,0.03));
+        }
+        #stat-queries-box {
+            background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03));
+        }
+        .memory-info { flex: 1; text-align: center; }
+        .memory-info .stat-num { font-size: 22px; }
+        .memory-info .stat-label { font-size: 10px; }
+
+        /* Flow Bridge - 中间数据流通道 */
+        .flow-bridge {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            padding: 4px 0;
+            position: relative;
+        }
+        .bridge-row {
+            height: 40px;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .bridge-dot {
+            position: absolute;
+            font-size: 8px;
+            opacity: 0;
+        }
+
+        /* 写入：从左向右飞向大脑 */
+        .write-bridge .bridge-dot {
+            color: #f97316;
+            animation: flyRight 1.8s ease-in-out infinite;
+        }
+        .write-bridge .wd1 { animation-delay: 0s; }
+        .write-bridge .wd2 { animation-delay: 0.6s; }
+        .write-bridge .wd3 { animation-delay: 1.2s; }
+
+        @keyframes flyRight {
+            0% { left: 0; opacity: 0.9; transform: scale(1); }
+            70% { opacity: 0.7; }
+            100% { left: calc(100% - 8px); opacity: 0; transform: scale(0.5); }
+        }
+
+        /* 查询：从右向左飞出大脑 */
+        .query-bridge .bridge-dot {
+            color: #3b82f6;
+            animation: flyLeft 1.8s ease-in-out infinite;
+        }
+        .query-bridge .qd1 { animation-delay: 0s; }
+        .query-bridge .qd2 { animation-delay: 0.6s; }
+        .query-bridge .qd3 { animation-delay: 1.2s; }
+
+        @keyframes flyLeft {
+            0% { right: 0; left: auto; opacity: 0.9; transform: scale(1); }
+            70% { opacity: 0.7; }
+            100% { right: calc(100% - 8px); left: auto; opacity: 0; transform: scale(0.5); }
+        }
+
+        /* Idle states */
+        .flow-bridge.idle .bridge-dot {
+            animation-play-state: paused;
+            opacity: 0.15;
+        }
+        .write-bridge.idle .bridge-dot { left: 50%; right: auto; }
+        .query-bridge.idle .bridge-dot { right: 50%; left: auto; }
+
+        /* Brain Card */
+        .memory-brain {
+            background: linear-gradient(135deg, rgba(139,92,246,0.1), rgba(59,130,246,0.05));
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            grid-row: span 2;
+        }
+        .brain-icon {
+            font-size: 36px;
+            animation: brainFloat 3s ease-in-out infinite;
+            position: relative;
+            z-index: 2;
+        }
+        @keyframes brainFloat {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-4px) scale(1.05); }
+        }
+        .brain-count {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent);
+            margin: 6px 0 2px;
+            position: relative;
+            z-index: 2;
+        }
+        .brain-label {
+            font-size: 11px;
+            color: var(--hint);
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Pulse */
+        .brain-pulse {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(139,92,246,0.3), transparent 70%);
+            animation: brainPulse 2s ease-in-out infinite;
+        }
+        @keyframes brainPulse {
+            0%, 100% { transform: scale(0.8); opacity: 0.6; }
+            50% { transform: scale(1.2); opacity: 0.3; }
+        }
+
+        /* Neurons */
+        .neurons {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+        .neuron {
+            position: absolute;
+            font-size: 6px;
+            color: rgba(139,92,246,0.6);
+            animation: neuronBlink 2s ease-in-out infinite;
+        }
+        .neuron.n1 { top: 15%; left: 20%; animation-delay: 0s; }
+        .neuron.n2 { top: 25%; right: 15%; animation-delay: 0.4s; }
+        .neuron.n3 { bottom: 30%; left: 25%; animation-delay: 0.8s; }
+        .neuron.n4 { top: 60%; right: 20%; animation-delay: 1.2s; }
+        .neuron.n5 { bottom: 15%; right: 35%; animation-delay: 1.6s; }
+        @keyframes neuronBlink {
+            0%, 100% { opacity: 0.2; text-shadow: none; }
+            50% { opacity: 1; text-shadow: 0 0 8px rgba(139,92,246,0.8); }
+        }
+
+        /* Idle state */
+        .memory-brain.idle .brain-icon { animation: none; }
+        .memory-brain.idle .brain-pulse { animation: none; opacity: 0.2; }
+        .memory-brain.idle .neuron { animation: none; opacity: 0.15; }
+
+        /* Uptime Bar - 底部状态条 */
+        .uptime-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 16px;
+            margin-top: 12px;
+            background: linear-gradient(90deg, rgba(34,197,94,0.08), rgba(34,197,94,0.15), rgba(34,197,94,0.08));
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .uptime-heartbeat {
+            color: #22c55e;
+            font-size: 14px;
+            animation: heartbeat 1.2s ease-in-out infinite;
+        }
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+        .uptime-text {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .uptime-label {
+            font-size: 11px;
+            color: var(--hint);
+        }
+        .uptime-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #22c55e, transparent);
+            animation: linePulse 2s ease-in-out infinite;
+        }
+        @keyframes linePulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+
+        .traffic-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .traffic-row:last-child { border-bottom: none; }
+        .traffic-label { font-size: 12px; color: var(--hint); }
+        .traffic-value { font-size: 13px; font-weight: 500; }
+        .traffic-value.up { color: var(--success); }
+        .traffic-value.down { color: var(--link); }
+
+        .ops-btn {
+            padding: 12px 8px;
+            border: none;
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: opacity 0.2s;
+        }
+        .ops-btn:active { opacity: 0.7; }
+        .ops-btn.primary {
+            background: var(--accent);
+            color: var(--accent-text);
+        }
+        .ops-btn.danger {
+            background: rgba(239,68,68,0.15);
+            color: var(--danger);
+        }
+
+        .refresh-info {
+            text-align: center;
+            font-size: 11px;
+            color: var(--hint);
+            margin-top: 12px;
+            padding-bottom: 20px;
+        }
+
+    /* === PC Responsive === */
+    @media (min-width: 768px) {
+        body {
+            background: #08080f;
+        }
+        .tab-nav {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .tab-btn {
+            padding: 16px 24px;
+            font-size: 14px;
+        }
+        .tab-btn .tab-icon {
+            font-size: 20px;
+        }
+        .page {
+            max-width: 960px;
+            padding: 20px 32px;
+        }
+        /* 监控页：PC 双栏布局 */
+        #page-monitor {
+            column-count: 2;
+            column-gap: 20px;
+        }
+        #page-monitor > * {
+            break-inside: avoid;
+            margin-bottom: 12px;
+        }
+        .gauge-grid {
+            grid-template-columns: repeat(4, 1fr);
+            column-span: all;
+        }
+        .gauge-card {
+            padding: 18px;
+        }
+        .gauge-value {
+            font-size: 24px;
+        }
+        .card {
+            padding: 18px;
+        }
+        .section-title {
+            font-size: 13px;
+            margin: 20px 0 12px;
+        }
+        /* 记忆区 */
+        .memory-stats-grid {
+            max-width: 520px;
+        }
+        .brain-icon { font-size: 44px; }
+        .brain-count { font-size: 34px; }
+        .memory-info .stat-num { font-size: 26px; }
+        /* 平台网格 */
+        .platform-grid {
+            grid-template-columns: repeat(3, 1fr);
+        }
+        /* 维护页 */
+        #page-ops {
+            max-width: 600px;
+        }
+    }
+
+    /* 非嵌入模式的标题 */
+    .app-header {
+        display: none;
+    }
+    .app-header h1 {
+        font-size: 20px;
+        font-weight: 600;
+        padding: 16px 0 4px;
+        text-align: center;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        margin-bottom: 8px;
+    }
+    .app-header p {
+        font-size: 12px;
+        color: var(--hint);
+        text-align: center;
+        margin-bottom: 8px;
+    }
+    @media (min-width: 768px) {
+        .app-header {
+            display: block;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+    }
+    
+
+        /* Gemma 聊天 */
+        .chat-container {
+            margin-top: 20px;
+        }
+        .chat-messages {
+            background: var(--bg);
+            border-radius: var(--radius);
+            padding: 12px;
+            min-height: 120px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .chat-msg {
+            margin-bottom: 10px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .chat-msg.user {
+            text-align: right;
+            color: var(--link);
+        }
+        .chat-msg.assistant {
+            color: var(--text);
+        }
+        .chat-input-row {
+            display: flex;
+            gap: 8px;
+        }
+        .chat-input {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            color: var(--text);
+            font-size: 16px;
+        }
+        .chat-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .chat-send-btn {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: none;
+            background: var(--accent);
+            color: var(--accent-text);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .chat-send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .chat-status {
+            font-size: 11px;
+            color: var(--hint);
+            margin-top: 6px;
+        }

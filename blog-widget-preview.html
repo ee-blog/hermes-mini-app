@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Widget Preview</title>
+<style>
+body { background: #1a1a2e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; }
+.sidebar { max-width: 380px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+
+<!-- ===== Hermes Agent 监控卡片 ===== -->
+<style>
+.hw-wrap{--hw-bg:rgba(45,51,59,0.4);--hw-border:rgba(255,255,255,0.06);--hw-text:#e0e0e0;--hw-hint:#828fa3;--hw-green:#22c55e;--hw-blue:#3b82f6;--hw-orange:#f97316;--hw-purple:#8b5cf6;max-width:380px;margin:0 0 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.hw-card{background:var(--hw-bg);border:1px solid var(--hw-border);border-radius:14px;padding:16px;box-shadow:0 4px 20px rgba(0,0,0,.3);overflow:hidden;position:relative}
+.hw-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.hw-dot{width:7px;height:7px;border-radius:50%;background:var(--hw-green);animation:hwPulse 2s infinite}
+@keyframes hwPulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hw-title{font-size:13px;font-weight:600;color:var(--hw-text);flex:1}
+.hw-uptime{font-size:10px;color:var(--hw-hint)}
+
+/* CPU 四核一行 */
+.hw-cpu{display:flex;gap:3px;margin-bottom:12px;height:14px}
+.hw-core{flex:1;background:rgba(255,255,255,.08);border-radius:3px;position:relative;overflow:hidden;min-width:0}
+.hw-core-fill{position:absolute;inset:0;border-radius:3px;transition:width .5s ease}
+.hw-core-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 4px;font-size:7px;font-weight:500;color:#fff;z-index:1;text-shadow:0 1px 1px rgba(0,0,0,.5)}
+
+/* Stats row - CPU/内存/硬盘/网速 */
+.hw-stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px}
+.hw-stat{background:rgba(255,255,255,.03);border-radius:6px;padding:8px 4px;text-align:center}
+.hw-stat-val{font-size:14px;font-weight:700;line-height:1.3}
+.hw-stat-sub{font-size:8px;color:var(--hw-hint);margin-top:2px}
+.hw-stat-label{font-size:9px;color:var(--hw-hint);margin-top:2px}
+.hw-cpu-val{color:var(--hw-green)}
+.hw-mem-val{color:var(--hw-blue)}
+.hw-disk-val{color:var(--hw-purple)}
+.hw-net-val{color:var(--hw-orange)}
+
+/* Memory engine */
+.hw-engine{display:grid;grid-template-columns:.7fr 44px 1fr;gap:0;position:relative}
+.hw-engine-left{display:flex;flex-direction:column;gap:6px}
+.hw-engine-row{border-radius:8px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;position:relative;overflow:hidden}
+.hw-engine-row.write{background:linear-gradient(135deg,rgba(249,115,22,.12),rgba(249,115,22,.03))}
+.hw-engine-row.query{background:linear-gradient(135deg,rgba(59,130,246,.12),rgba(59,130,246,.03))}
+.hw-engine-num{font-size:16px;font-weight:700}
+.hw-engine-num.w{color:var(--hw-orange)}
+.hw-engine-num.q{color:var(--hw-blue)}
+.hw-engine-label{font-size:8px;color:var(--hw-hint)}
+
+/* Flow bridge - 3 dots big→small */
+.hw-flow-bridge{display:flex;flex-direction:column;justify-content:space-around;padding:2px 0}
+.hw-bridge-row{height:34px;position:relative;display:flex;align-items:center}
+.hw-bridge-dot{position:absolute;font-size:7px;opacity:0}
+.hw-write-dot{color:var(--hw-orange);animation:hwFlyRight 1.8s ease-in-out infinite}
+.hw-query-dot{color:var(--hw-blue);animation:hwFlyLeft 1.8s ease-in-out infinite}
+.hw-wd1{animation-delay:0s}.hw-wd2{animation-delay:.6s}.hw-wd3{animation-delay:1.2s}
+.hw-qd1{animation-delay:0s}.hw-qd2{animation-delay:.6s}.hw-qd3{animation-delay:1.2s}
+@keyframes hwFlyRight{0%{left:0;opacity:.9;transform:scale(1)}70%{opacity:.7}100%{left:calc(100% - 7px);opacity:0;transform:scale(.5)}}
+@keyframes hwFlyLeft{0%{right:0;left:auto;opacity:.9;transform:scale(1)}70%{opacity:.7}100%{right:calc(100% - 7px);left:auto;opacity:0;transform:scale(.5)}}
+
+/* Brain card */
+.hw-brain-card{background:linear-gradient(135deg,rgba(139,92,246,.1),rgba(59,130,246,.05));border-radius:10px;padding:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;grid-row:span 2}
+.hw-brain{font-size:28px;animation:hwBrainFloat 3s ease-in-out infinite;position:relative;z-index:2}
+@keyframes hwBrainFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-3px) scale(1.05)}}
+.hw-brain-count{font-size:20px;font-weight:700;color:#a78bfa;margin:4px 0 2px;position:relative;z-index:2}
+.hw-brain-label{font-size:9px;color:var(--hw-hint);position:relative;z-index:2}
+.hw-brain-pulse{position:absolute;width:60px;height:60px;border-radius:50%;background:radial-gradient(circle,rgba(139,92,246,.25),transparent 70%);animation:hwBrainPulse 2s ease-in-out infinite}
+@keyframes hwBrainPulse{0%,100%{transform:scale(.8);opacity:.5}50%{transform:scale(1.2);opacity:.2}}
+.hw-neurons{position:absolute;inset:0;pointer-events:none}
+.hw-neuron{position:absolute;font-size:6px;color:rgba(139,92,246,.5);animation:hwNeuronBlink 2s ease-in-out infinite}
+@keyframes hwNeuronBlink{0%,100%{opacity:.2}50%{opacity:1;text-shadow:0 0 8px rgba(139,92,246,.8)}}
+</style>
+
+<div class="hw-wrap">
+<div class="hw-card">
+  <div class="hw-header">
+    <div class="hw-dot"></div>
+    <span class="hw-title">Hermes Agent</span>
+    <span class="hw-uptime" id="hw-uptime">--</span>
+  </div>
+  <div class="hw-cpu" id="hw-cpu"></div>
+  <div class="hw-stats-row">
+    <div class="hw-stat">
+      <div class="hw-stat-val hw-cpu-val" id="hw-cpu-pct">--%</div>
+      <div class="hw-stat-sub" id="hw-cpu-cores">4核</div>
+      <div class="hw-stat-label">CPU</div>
+    </div>
+    <div class="hw-stat">
+      <div class="hw-stat-val hw-mem-val" id="hw-mem-pct">--%</div>
+      <div class="hw-stat-sub" id="hw-mem-detail">--/--</div>
+      <div class="hw-stat-label">内存</div>
+    </div>
+    <div class="hw-stat">
+      <div class="hw-stat-val hw-disk-val" id="hw-disk-pct">--%</div>
+      <div class="hw-stat-sub" id="hw-disk-detail">--/--</div>
+      <div class="hw-stat-label">硬盘</div>
+    </div>
+    <div class="hw-stat">
+      <div class="hw-stat-val hw-net-val" id="hw-net">--</div>
+      <div class="hw-stat-sub" id="hw-net-quota">--/10T</div>
+      <div class="hw-stat-label">网速</div>
+    </div>
+  </div>
+  <div class="hw-engine">
+    <div class="hw-engine-left">
+      <div class="hw-engine-row write">
+        <div class="hw-engine-num w" id="hw-writes">--</div>
+        <div class="hw-engine-label">写入</div>
+      </div>
+      <div class="hw-engine-row query">
+        <div class="hw-engine-num q" id="hw-queries">--</div>
+        <div class="hw-engine-label">查询</div>
+      </div>
+    </div>
+    <div class="hw-flow-bridge">
+      <div class="hw-bridge-row">
+        <span class="hw-bridge-dot hw-write-dot hw-wd1">●</span>
+        <span class="hw-bridge-dot hw-write-dot hw-wd2">●</span>
+        <span class="hw-bridge-dot hw-write-dot hw-wd3">●</span>
+      </div>
+      <div class="hw-bridge-row">
+        <span class="hw-bridge-dot hw-query-dot hw-qd1">●</span>
+        <span class="hw-bridge-dot hw-query-dot hw-qd2">●</span>
+        <span class="hw-bridge-dot hw-query-dot hw-qd3">●</span>
+      </div>
+    </div>
+    <div class="hw-brain-card">
+      <div class="hw-brain-pulse"></div>
+      <div class="hw-neurons">
+        <div class="hw-neuron" style="top:10%;left:15%;animation-delay:0s">✦</div>
+        <div class="hw-neuron" style="top:20%;right:10%;animation-delay:.4s">✦</div>
+        <div class="hw-neuron" style="top:50%;left:8%;animation-delay:.8s">✦</div>
+        <div class="hw-neuron" style="bottom:25%;right:18%;animation-delay:1.2s">✦</div>
+        <div class="hw-neuron" style="bottom:10%;left:25%;animation-delay:1.6s">✦</div>
+      </div>
+      <div class="hw-brain">🧠</div>
+      <div class="hw-brain-count" id="hw-total">--</div>
+      <div class="hw-brain-label">记忆库</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+(function(){
+  var API='https://tg.eebk.com/api/blog-widget';
+  var coreColors=['#22c55e','#3b82f6','#f59e0b','#8b5cf6'];
+  var cpuEl=document.getElementById('hw-cpu');
+  for(var i=0;i<4;i++){
+    var bar=document.createElement('div');
+    bar.className='hw-core';
+    bar.innerHTML='<div class="hw-core-fill" id="hw-core-'+i+'" style="background:'+coreColors[i]+'"></div>'
+      +'<span class="hw-core-text"><span>C'+(i+1)+'</span><span id="hw-core-pct-'+i+'">--%</span></span>';
+    cpuEl.appendChild(bar);
+  }
+  function fmtSpeed(bps){
+    if(bps<1024)return bps+'B/s';
+    if(bps<1048576)return(bps/1024).toFixed(1)+'K/s';
+    return(bps/1048576).toFixed(1)+'M/s';
+  }
+  function fmtGB(bytes){return(bytes/1073741824).toFixed(1)+'G';}
+  function fmtTB(bytes){var tb=bytes/1099511627776;return tb<0.01?(bytes/1073741824).toFixed(0)+'G':tb.toFixed(1)+'T';}
+  function fmtUptime(s){
+    var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+    return d+'天'+h+'时'+m+'分';
+  }
+  function update(){
+    fetch(API).then(function(r){return r.json()}).then(function(d){
+      if(d.error)return;
+      // CPU cores
+      var cores=d.cpu.cores||[];
+      for(var i=0;i<cores.length&&i<4;i++){
+        var fill=document.getElementById('hw-core-'+i);
+        var pct=document.getElementById('hw-core-pct-'+i);
+        if(fill)fill.style.width=cores[i]+'%';
+        if(pct)pct.textContent=cores[i].toFixed(0)+'%';
+      }
+      document.getElementById('hw-cpu-pct').textContent=d.cpu.percent.toFixed(1)+'%';
+      var coreTxt=[];
+      for(var i=0;i<cores.length&&i<4;i++)coreTxt.push(cores[i].toFixed(0)+'%');
+      document.getElementById('hw-cpu-cores').textContent=coreTxt.join(' · ');
+      // Memory
+      document.getElementById('hw-mem-pct').textContent=d.memory.percent.toFixed(1)+'%';
+      if(d.memory.used_gb&&d.memory.total_gb){
+        document.getElementById('hw-mem-detail').textContent=d.memory.used_gb+'G/'+d.memory.total_gb+'G';
+      }
+      // Disk
+      if(d.disk){
+        document.getElementById('hw-disk-pct').textContent=d.disk.percent.toFixed(1)+'%';
+        document.getElementById('hw-disk-detail').textContent=fmtGB(d.disk.used)+'/'+fmtGB(d.disk.total);
+      }
+      // Network speed
+      var down=d.net.download_per_sec||0;
+      document.getElementById('hw-net').textContent=fmtSpeed(down);
+      // Monthly quota
+      if(d.monthly_traffic){
+        var total=d.monthly_traffic.rx+d.monthly_traffic.tx;
+        document.getElementById('hw-net-quota').textContent=fmtTB(total)+'/10T';
+      }
+      // Uptime
+      document.getElementById('hw-uptime').textContent=fmtUptime(d.uptime);
+      // Memory engine
+      document.getElementById('hw-writes').textContent=d.memory_engine.today_writes;
+      document.getElementById('hw-queries').textContent=d.memory_engine.today_queries;
+      document.getElementById('hw-total').textContent=d.memory_engine.total;
+    }).catch(function(){});
+  }
+  update();
+  setInterval(update,30000);
+})();
+</script>
+<!-- ===== Hermes Agent 监控卡片 END ===== -->
+
+</div>
+</body>
+</html>

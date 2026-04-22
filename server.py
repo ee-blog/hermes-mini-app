@@ -8,13 +8,14 @@ import time
 import json
 import re
 import psutil
-from flask import Flask, jsonify, request, Response
+from flask import Flask, jsonify, request, Response, send_from_directory
 from functools import wraps
 
 app = Flask(__name__)
 
 API_TOKEN=os.environ.get("MINI_APP_TOKEN", "your-secret-token-here")
 HERMES_HOME = os.environ.get('HERMES_HOME', os.path.expanduser('~/.hermes'))
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 维护页面 IP 白名单
 OPS_WHITELIST = {
@@ -122,6 +123,47 @@ def _preheat_cpu():
 
 # 应用启动时预热
 _preheat_cpu()
+
+def _get_memory_engine_stats():
+    """获取记忆引擎统计 — 供 blog-widget 等复用"""
+    count = 0
+    today_queries = 0
+    today_writes = 0
+    try:
+        import sqlite3, shutil, tempfile
+        from datetime import datetime
+        import glob
+        db_path = os.path.expanduser('~/.hermes/mem0-local-data/collection/hermes_memories/storage.sqlite')
+        if os.path.exists(db_path):
+            fd, tmp_path = tempfile.mkstemp(suffix='.sqlite')
+            os.close(fd)
+            shutil.copy(db_path, tmp_path)
+            conn = sqlite3.connect(tmp_path)
+            cursor = conn.execute('SELECT COUNT(*) FROM points')
+            count = cursor.fetchone()[0]
+            conn.close()
+            os.unlink(tmp_path)
+        today = datetime.now().strftime('%Y%m%d')
+        sessions_dir = os.path.join(HERMES_HOME, 'sessions/')
+        for f in glob.glob(f'{sessions_dir}{today}_*.jsonl'):
+            try:
+                with open(f, 'r') as fp:
+                    for line in fp:
+                        line = line.strip()
+                        if not line: continue
+                        try: msg = json.loads(line)
+                        except: continue
+                        if msg.get('role') == 'assistant':
+                            for tc in msg.get('tool_calls', []):
+                                name = tc.get('function', {}).get('name', '').lower()
+                                if 'mem0_search' in name or 'mem0_profile' in name:
+                                    today_queries += 1
+                                elif 'mem0_conclude' in name or ('memory' in name and 'add' in name):
+                                    today_writes += 1
+            except: pass
+    except Exception as e:
+        app.logger.error(f"Memory engine stats error: {e}")
+    return {'total': count, 'today_queries': today_queries, 'today_writes': today_writes}
 
 @app.route('/api/system')
 def system_stats():
@@ -260,14 +302,6 @@ def services_status():
         services['hermes'] = result.returncode == 0
     except:
         services['hermes'] = False
-    
-    # Snell
-    try:
-        result = subprocess.run(['systemctl', 'is-active', 'snell'],
-                                capture_output=True, text=True, timeout=5)
-        services['snell'] = result.stdout.strip() == 'active'
-    except:
-        services['snell'] = False
     
     # Ollama
     try:
@@ -559,6 +593,57 @@ def hermes_model_info():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/hermes/summary')
+def hermes_summary():
+    """Hermes 选项卡数据整合 — 单一请求返回所有数据"""
+    result = {'model': {'model': '--', 'provider': '--'}, 'platforms': {}, 'memory': {}, 'embedding': {}}
+    
+    # Model
+    try:
+        cfg = subprocess.run(['hermes', 'config'], capture_output=True, text=True, timeout=15, env=get_user_env())
+        model_m = re.search(r"'model':\s*'([^']*)'", cfg.stdout)
+        provider_m = re.search(r"'provider':\s*'([^']*)'", cfg.stdout)
+        result['model'] = {
+            'model': model_m.group(1) if model_m else '--',
+            'provider': provider_m.group(1) if provider_m else '--'
+        }
+    except: pass
+    
+    # Platforms
+    try:
+        status = subprocess.run(['hermes', 'status'], capture_output=True, text=True, timeout=10, env=get_user_env())
+        online = status.returncode == 0
+        result['platforms'] = {'Telegram': online, 'QQ': online, '微信': online}
+    except: pass
+    
+    # Memory
+    try:
+        mem_result = subprocess.run(['hermes', 'memory'], capture_output=True, text=True, timeout=15, env=get_user_env())
+        for line in mem_result.stdout.split('\n'):
+            if 'Provider:' in line:
+                result['memory']['provider'] = line.split('Provider:')[1].strip()
+            if 'Status:' in line:
+                result['memory']['status'] = line.split('Status:')[1].strip()
+        result['memory'].update(_get_memory_engine_stats())
+    except: pass
+    
+    # Embedding
+    try:
+        ollama_active = subprocess.run(['pgrep', '-x', 'ollama'], capture_output=True, timeout=5).returncode == 0
+        models = []
+        if ollama_active:
+            ol = subprocess.run(['ollama', 'list'], capture_output=True, text=True, timeout=10)
+            for line in ol.stdout.strip().split('\n')[1:]:
+                parts = line.split()
+                if len(parts) >= 3 and 'embedding' in parts[0].lower():
+                    models.append({'name': parts[0], 'size': parts[2]})
+        result['embedding'] = {'engine': 'Ollama (本地)', 'active': ollama_active, 'models': models, 'vector_db': 'Qdrant (本地)'}
+    except: pass
+    
+    return jsonify(result)
+
+
 @app.route('/api/hermes/embedding')
 def hermes_embedding_info():
     """获取向量引擎信息 (Ollama + embedding 模型)"""
@@ -618,7 +703,7 @@ ALLOWED_COMMANDS = {
     'nginx_restart': ['sudo', 'systemctl', 'restart', 'nginx'],
     'miniapp_restart': ['sudo', 'systemctl', 'restart', 'hermes-mini-app'],
     'ollama_restart': ['sudo', 'systemctl', 'restart', 'ollama'],
-    'snell_restart': ['sudo', 'systemctl', 'restart', 'snell'],
+    
     'journalctl_gateway': ['journalctl', '--user', '-u', 'hermes-gateway', '-n', '30', '--no-pager'],
     'df': ['df', '-h'],
     'free': ['free', '-h'],
@@ -727,7 +812,6 @@ def restart_service():
         'nginx': (['sudo', 'systemctl', 'restart', 'nginx'], False),
         'miniapp': (['sudo', 'systemctl', 'restart', 'hermes-mini-app'], False),
         'ollama': (['sudo', 'systemctl', 'restart', 'ollama'], False),
-        'snell': (['sudo', 'systemctl', 'restart', 'snell'], False),
     }
     
     if service not in service_map:
@@ -788,14 +872,11 @@ def stream():
                 }
                 
                 # 服务状态
-                services = ['gateway', 'hermes', 'ollama', 'snell']
+                services = ['gateway', 'hermes', 'ollama']
                 svc_result = []
                 for svc in services:
                     try:
-                        if svc == 'snell':
-                            r = subprocess.run(['systemctl', 'is-active', 'snell'], capture_output=True, text=True, timeout=2)
-                            active = r.stdout.strip() == 'active'
-                        elif svc == 'gateway':
+                        if svc == 'gateway':
                             r = subprocess.run(['systemctl', '--user', 'is-active', 'hermes-gateway'],
                                                capture_output=True, text=True, timeout=2, env=get_user_env())
                             active = r.stdout.strip() == 'active'
@@ -869,14 +950,11 @@ def dashboard():
         }
         
         # 服务状态
-        services = ['gateway', 'hermes', 'ollama', 'snell']
+        services = ['gateway', 'hermes', 'ollama']
         svc_result = []
         for svc in services:
             try:
-                if svc == 'snell':
-                    r = subprocess.run(['systemctl', 'is-active', 'snell'], capture_output=True, text=True, timeout=2)
-                    active = r.stdout.strip() == 'active'
-                elif svc == 'gateway':
+                if svc == 'gateway':
                     r = subprocess.run(['systemctl', '--user', 'is-active', 'hermes-gateway'],
                                        capture_output=True, text=True, timeout=2, env=get_user_env())
                     active = r.stdout.strip() == 'active'
@@ -896,6 +974,81 @@ def dashboard():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/blog-widget', methods=['GET', 'OPTIONS'])
+def blog_widget():
+    """博客侧边栏监控卡片数据 — 整合系统+内存引擎，单一请求（支持跨域）"""
+    # CORS 预检
+    if request.method == 'OPTIONS':
+        return '', 204, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+        }
+    
+    try:
+        cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+        cpu_percent = sum(cpu_per_core) / len(cpu_per_core)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        uptime = int(time.time() - psutil.boot_time())
+        io_stats = get_cached_io_stats()
+
+        # 月度流量（vnstat）
+        monthly = None
+        try:
+            result = subprocess.run(['vnstat', '--json', 'm', '-i', 'enp0s6'],
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                data = json.loads(result.stdout)
+                interfaces = data.get('interfaces', [])
+                for iface in interfaces:
+                    if iface['name'] == 'enp0s6':
+                        months = iface.get('traffic', {}).get('month', [])
+                        if months:
+                            latest = months[-1]
+                            monthly = {
+                                'year': latest.get('date', {}).get('year'),
+                                'month': latest.get('date', {}).get('month'),
+                                'rx': latest.get('rx', 0),
+                                'tx': latest.get('tx', 0),
+                            }
+        except: pass
+
+        result = {
+            'cpu': {
+                'percent': cpu_percent,
+                'cores': cpu_per_core,
+            },
+            'memory': {
+                'percent': mem.percent,
+                'used_gb': round(mem.used / 1073741824, 1),
+                'total_gb': round(mem.total / 1073741824, 1),
+            },
+            'disk': {
+                'percent': disk.percent,
+                'used': disk.used,
+                'total': disk.total,
+            },
+            'net': {
+                'download_per_sec': io_stats.get('net_speed', {}).get('download_per_sec', 0),
+                'upload_per_sec': io_stats.get('net_speed', {}).get('upload_per_sec', 0),
+            },
+            'monthly_traffic': monthly,
+            'uptime': uptime,
+            'memory_engine': _get_memory_engine_stats(),
+        }
+        resp = jsonify(result)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/preview/widget')
+def preview_widget():
+    return send_from_directory(APP_DIR, 'blog-widget-preview.html')
 
 
 if __name__ == '__main__':
