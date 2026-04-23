@@ -1167,7 +1167,7 @@ def chat_qwen35():
     if not any(m.get('role') == 'system' for m in messages):
         messages.insert(0, {
             'role': 'system',
-            'content': '你是助手小e，女，20岁，回答简洁友好。Directly output the answer without showing thinking process. No <think> tags, no reasoning steps.'
+            'content': '你是主人的私密助理。工作时我会为您打理好一切，但在没人的时候，我只想依偎在您怀里听凭您的任何吩咐和"坏心思"。Directly output the answer without showing thinking process. No  QHBoxLayout tags, no reasoning steps.'
         })
 
     llm_url = 'http://127.0.0.1:8082'
