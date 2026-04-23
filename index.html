@@ -784,6 +784,17 @@
                 <div id="blog-blocked" style="background:rgba(255,255,255,0.03);border-radius:6px"><div style="color:var(--hint);text-align:center;padding:8px">加载中...</div></div>
             </div>
 
+            <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--hint)">💬 AI 助手</div>
+            <div class="card" style="padding:0;overflow:hidden">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-msg assistant">👋 你好！我是 Qwen，有什么可以帮你的？</div>
+                </div>
+                <div class="chat-input-wrap">
+                    <input type="text" class="chat-input" id="chat-input" placeholder="输入消息..." autocomplete="off">
+                    <button class="chat-send" id="chat-send" onclick="sendChat()">发送</button>
+                </div>
+            </div>
+
             <div style="display:flex;gap:8px;margin-bottom:10px">
                 <button class="ops-btn danger" style="flex:1" onclick="emergencyRestart()">
                     🚨 紧急重启
@@ -796,17 +807,6 @@
             <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--hint)">📋 操作日志</div>
             <div class="card" id="ops-log" style="min-height:50px;margin-bottom:10px">
                 <div style="color:var(--hint);font-size:12px">点击上方按钮执行操作</div>
-            </div>
-
-            <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--hint)">💬 AI 助手</div>
-            <div class="card" style="padding:0;overflow:hidden">
-                <div class="chat-messages" id="chat-messages">
-                    <div class="chat-msg assistant">👋 你好！我是 Qwen，有什么可以帮你的？</div>
-                </div>
-                <div class="chat-input-wrap">
-                    <input type="text" class="chat-input" id="chat-input" placeholder="输入消息..." autocomplete="off">
-                    <button class="chat-send" id="chat-send" onclick="sendChat()">发送</button>
-                </div>
             </div>
         </div>
 
