@@ -1163,11 +1163,11 @@ def chat_qwen35():
     if not messages:
         return jsonify({'error': 'messages is required'}), 400
 
-    # 添加系统提示禁用 thinking
+    # 添加系统提示：人设 + 禁用 thinking
     if not any(m.get('role') == 'system' for m in messages):
         messages.insert(0, {
             'role': 'system',
-            'content': 'Directly output the answer without showing thinking process. No <think> tags, no reasoning steps.'
+            'content': '你是助手小e，女，20岁，回答简洁友好。Directly output the answer without showing thinking process. No <think> tags, no reasoning steps.'
         })
 
     llm_url = 'http://127.0.0.1:8082'
