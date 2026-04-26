@@ -789,8 +789,14 @@
                 <div class="chat-messages" id="chat-messages">
                     <div class="chat-msg assistant">👋 你好！我是 Qwen，有什么可以帮你的？</div>
                 </div>
+                <div style="padding:6px 10px;border-top:1px solid var(--border)">
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <span style="font-size:11px;color:var(--hint);white-space:nowrap">🌐 参考网页:</span>
+                        <input type="text" id="chat-url" placeholder="https://... (可选)" style="flex:1;background:var(--input-bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:11px;color:var(--text)">
+                    </div>
+                </div>
                 <div class="chat-input-wrap">
-                    <input type="text" class="chat-input" id="chat-input" placeholder="输入消息..." autocomplete="off">
+                    <input type="text" class="chat-input" id="chat-input" placeholder="输入消息... (如有URL会自动抓取)" autocomplete="off">
                     <button class="chat-send" id="chat-send" onclick="sendChat()">发送</button>
                 </div>
             </div>
@@ -1178,7 +1184,9 @@
 
         async function sendChat() {
             const input = document.getElementById('chat-input');
+            const urlInput = document.getElementById('chat-url');
             const msg = input.value.trim();
+            const url = urlInput.value.trim();
             if (!msg || chatStreaming) return;
             chatStreaming = true;
             input.value = '';
@@ -1188,7 +1196,9 @@
 
             const box = document.getElementById('chat-messages');
             // 用户消息
-            box.innerHTML += `<div class="chat-msg user">${esc(msg)}</div>`;
+            let userMsgHtml = esc(msg);
+            if (url) userMsgHtml += ` <span style="color:var(--accent);font-size:10px">🌐${url}</span>`;
+            box.innerHTML += `<div class="chat-msg user">${userMsgHtml}</div>`;
             box.scrollTop = box.scrollHeight;
 
             chatHistory.push({role: 'user', content: msg});
@@ -1200,11 +1210,15 @@
             box.appendChild(assistantDiv);
             box.scrollTop = box.scrollHeight;
 
+            // 选择端点
+            const endpoint = url ? '/chat/qwen35-web' : '/chat/qwen35';
+            const payload = url ? {messages: chatHistory, url} : {messages: chatHistory};
+
             try {
-                const r = await fetch(API + '/chat/qwen35', {
+                const r = await fetch(API + endpoint, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-API-Token': TOKEN},
-                    body: JSON.stringify({messages: chatHistory})
+                    body: JSON.stringify(payload)
                 });
                 const reader = r.body.getReader();
                 const decoder = new TextDecoder();
@@ -1223,7 +1237,10 @@
                         if (json === '[DONE]') break;
                         try {
                             const d = JSON.parse(json);
-                            if (d.content) {
+                            // 网页抓取状态
+                            if (d.status === 'fetched') {
+                                assistantDiv.innerHTML = `<span style="color:var(--hint)">📄 已抓取 ${d.length} 字符...</span>`;
+                            } else if (d.content) {
                                 fullText += d.content;
                                 assistantDiv.textContent = fullText;
                                 box.scrollTop = box.scrollHeight;

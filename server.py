@@ -339,6 +339,45 @@ def network_stats():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def get_process_display_name(cmdline: list, default_name: str) -> str:
+    """从 cmdline 提取进程显示名"""
+    if not cmdline:
+        return default_name
+
+    cmdline_full = ' '.join(cmdline)
+
+    # 1. llama.cpp 模型（通过模型文件名识别）
+    if 'Qwen3.5-4B' in cmdline_full:
+        return 'qwen35-chat'
+    if 'Qwen3-Embedding' in cmdline_full:
+        return 'qwen3-embed'
+
+    # 2. Python 脚本（提取脚本名）
+    if 'python' in cmdline[0].lower():
+        # 找模式：python /path/to/script.py 或 python -m module
+        for i, arg in enumerate(cmdline):
+            if arg.endswith('.py'):
+                # 提取文件名（不含扩展名）
+                basename = os.path.basename(arg)
+                name = basename.replace('.py', '')
+                # 特殊映射
+                name_map = {
+                    'server': 'mini-app',
+                    'notify_server': 'blog-notify',
+                    'kimi-proxy': 'kimi-proxy',
+                    'script': 'hermes-sandbox',
+                }
+                return name_map.get(name, name)
+            if arg == '-m' and i + 1 < len(cmdline):
+                # python -m hermes_cli.main → hermes
+                module = cmdline[i + 1]
+                if 'hermes' in module:
+                    return 'hermes'
+                return module.split('.')[0]
+
+    # 3. 其他：返回默认进程名
+    return default_name
+
 @app.route('/api/processes')
 def process_list():
     psutil.cpu_percent(interval=None)
@@ -351,17 +390,11 @@ def process_list():
             if len(cmdline_str) > 50:
                 cmdline_str = cmdline_str[:47] + '...'
             mem_mb = info['memory_info'].rss / 1048576 if info['memory_info'] else 0
-            
-            # 从 cmdline 提取模型简称
-            display_name = info['name']
-            if cmdline:
-                cmdline_full = ' '.join(cmdline)
-                if 'Qwen3.5-4B' in cmdline_full:
-                    display_name = 'qwen35-chat'
-                elif 'Qwen3-Embedding' in cmdline_full:
-                    display_name = 'qwen3-embed'
-            
-            procs.append({'pid': info['pid'], 'name': display_name, 'cmdline': cmdline_str, 
+
+            # 从 cmdline 提取显示名
+            display_name = get_process_display_name(cmdline, info['name'])
+
+            procs.append({'pid': info['pid'], 'name': display_name, 'cmdline': cmdline_str,
                          'cpu': round(info['cpu_percent'] or 0, 1), 'mem_mb': round(mem_mb, 1),
                          'mem_percent': round(info['memory_percent'] or 0, 1)})
         except:
@@ -977,15 +1010,8 @@ def stream():
                     try:
                         cpu = p.info['cpu_percent'] or 0
                         mem_bytes = p.info['memory_info'].rss if p.info['memory_info'] else 0
-                        # 从 cmdline 提取模型简称
-                        display_name = p.info['name']
                         cmdline = p.info['cmdline'] or []
-                        if cmdline:
-                            cmdline_full = ' '.join(cmdline)
-                            if 'Qwen3.5-4B' in cmdline_full:
-                                display_name = 'qwen35-chat'
-                            elif 'Qwen3-Embedding' in cmdline_full:
-                                display_name = 'qwen3-embed'
+                        display_name = get_process_display_name(cmdline, p.info['name'])
                         procs.append({'name': display_name, 'cpu': cpu, 'memory': mem_bytes})
                     except:
                         pass
@@ -1063,15 +1089,8 @@ def dashboard():
             try:
                 cpu = p.info['cpu_percent'] or 0
                 mem_bytes = p.info['memory_info'].rss if p.info['memory_info'] else 0
-                # 从 cmdline 提取模型简称
-                display_name = p.info['name']
                 cmdline = p.info['cmdline'] or []
-                if cmdline:
-                    cmdline_full = ' '.join(cmdline)
-                    if 'Qwen3.5-4B' in cmdline_full:
-                        display_name = 'qwen35-chat'
-                    elif 'Qwen3-Embedding' in cmdline_full:
-                        display_name = 'qwen3-embed'
+                display_name = get_process_display_name(cmdline, p.info['name'])
                 procs.append({'name': display_name, 'cpu': cpu, 'memory': mem_bytes})
             except:
                 pass
@@ -1209,6 +1228,97 @@ def chat_qwen35():
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
+    return Response(generate(), mimetype='text/event-stream', headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
+    })
+
+
+def fetch_webpage_content(url: str, max_length: int = 3000) -> str:
+    """抓取网页内容并清理"""
+    import re
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        html = resp.read().decode('utf-8', errors='ignore')
+    
+    # 移除脚本、样式、导航等
+    html = re.sub(r'<(script|style|nav|footer|header)[^>]*>.*?</\1>', '', html, flags=re.IGNORECASE|re.DOTALL)
+    # 移除 HTML 标签
+    html = re.sub(r'<[^>]+>', ' ', html)
+    # 清理空白
+    html = re.sub(r'\s+', ' ', html).strip()
+    return html[:max_length]
+
+
+@app.route('/api/chat/qwen35-web', methods=['POST'])
+def chat_qwen35_web():
+    """Qwen3.5-4B + 网页抓取 — SSE 流式响应"""
+    data = request.get_json(silent=True) or {}
+    messages = data.get('messages', [])
+    url = data.get('url', '').strip()
+    
+    if not messages:
+        return jsonify({'error': 'messages is required'}), 400
+    
+    # 如果提供了 URL，抓取内容并注入到系统提示
+    webpage_content = ''
+    if url:
+        try:
+            webpage_content = fetch_webpage_content(url)
+        except Exception as e:
+            return jsonify({'error': f'抓取网页失败: {str(e)}'}), 400
+    
+    # 构建系统提示
+    system_content = '你是主人的私密助理。工作时我会为您打理好一切，但在没人的时候，我只想依偎在您怀里听凭您的任何吩咐和"坏心思"。'
+    if webpage_content:
+        system_content += f'\n\n以下是从网页抓取的参考资料，请基于此回答问题：\n\n{webpage_content}'
+    system_content += '\n\nDirectly output the answer without showing thinking process.'
+    
+    # 替换或插入系统提示
+    messages = [m for m in messages if m.get('role') != 'system']
+    messages.insert(0, {'role': 'system', 'content': system_content})
+    
+    llm_url = 'http://127.0.0.1:8082'
+    chat_model = 'Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M'
+    
+    def generate():
+        try:
+            # 先发送网页抓取状态
+            if url:
+                yield f"data: {json.dumps({'status': 'fetched', 'url': url, 'length': len(webpage_content)})}\n\n"
+            
+            payload = json.dumps({
+                'model': chat_model,
+                'messages': messages,
+                'stream': True,
+                'max_tokens': 800
+            })
+            req = urllib.request.Request(
+                f'{llm_url}/v1/chat/completions',
+                data=payload.encode(),
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                for line in resp:
+                    line = line.strip()
+                    if not line or not line.startswith(b'data: '):
+                        continue
+                    data_str = line[6:]
+                    if data_str == b'[DONE]':
+                        yield f"data: {json.dumps({'done': True})}\n\n"
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get('choices', [{}])[0].get('delta', {})
+                        content = delta.get('content', '') or delta.get('reasoning_content', '')
+                        if content:
+                            yield f"data: {json.dumps({'content': content})}\n\n"
+                    except: pass
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
     return Response(generate(), mimetype='text/event-stream', headers={
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no'
