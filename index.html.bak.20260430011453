@@ -81,11 +81,7 @@
             color: var(--hint);
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin: 0 0 8px;
-        }
-        /* 非 card 内的 section-title 保留上间距 */
-        .page > .section-title {
-            margin-top: 18px;
+            margin: 18px 0 10px;
         }
 
         .card {
@@ -112,8 +108,8 @@
             align-items: center;
             margin-bottom: 8px;
         }
-        .gauge-label { font-size: 12px; color: var(--hint, #8e9297); font-weight: 500; letter-spacing: 0.5px; }
-        .gauge-value { font-size: 20px; font-weight: 700; color: var(--text, #ffffff); }
+        .gauge-label { font-size: 12px; color: var(--hint); }
+        .gauge-value { font-size: 20px; font-weight: 700; }
         .gauge-bar {
             height: 5px;
             background: rgba(255,255,255,0.08);
@@ -426,23 +422,8 @@
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
         .traffic-row:last-child { border-bottom: none; }
-        .traffic-label { font-size: 13px; color: var(--hint, #8e9297); white-space: nowrap; }
-        .traffic-value { font-size: 13px; font-weight: 500; color: var(--text, #fff); white-space: nowrap; }
-        /* 月额度行：数值缩小防止换行 */
-        .traffic-row:last-child .traffic-value { font-size: 11px; }
-
-        .cron-job-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 7px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            font-size: 13px;
-        }
-        .cron-job-row:last-child { border-bottom: none; }
-        .cron-name { flex: 1; color: var(--text, #fff); font-weight: 500; }
-        .cron-status { font-weight: 600; white-space: nowrap; }
-        .cron-next { font-size: 11px; color: var(--hint, #8e9297); white-space: nowrap; }
+        .traffic-label { font-size: 12px; color: var(--hint); }
+        .traffic-value { font-size: 13px; font-weight: 500; }
         .traffic-value.up { color: var(--success); }
         .traffic-value.down { color: var(--link); }
 
@@ -544,7 +525,7 @@
     .skeleton-text.lg { width: 80%; }
     .skeleton-row { display: flex; justify-content: space-between; padding: 8px 0; }
     .skeleton-row .skeleton { flex: 1; margin: 0 4px; }
-    /* 底部卡片两列布局 */
+    /* 底部4卡片两列布局 */
     .bottom-cards-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -553,16 +534,9 @@
     }
     .bottom-cards-grid .card {
         margin-bottom: 0;
-        height: auto;
+        height: 140px;
         overflow: hidden;
         position: relative;
-    }
-    .bottom-cards-grid .card.span-2 {
-        grid-column: span 2;
-        height: auto;
-        min-height: 140px;
-        max-height: 320px;
-        overflow-y: auto;
     }
     /* 紧凑内部间距 */
     .bottom-cards-grid .section-title { margin-bottom: 6px; }
@@ -660,15 +634,15 @@
             </div>
         </div>
 
-        <div class="card" id="oci-billing-card">
-            <div class="section-title">☁️ OCI 账单</div>
+        <div class="card" id="services-card">
+            <div class="section-title">服务状态</div>
             <div class="skeleton skeleton-text lg"></div>
             <div class="skeleton skeleton-text sm"></div>
+            <div class="skeleton skeleton-text lg"></div>
         </div>
 
         <div class="card" id="cpu-top">
             <div class="section-title">CPU TOP</div>
-            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
             <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
             <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
             <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
@@ -679,15 +653,7 @@
             <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
             <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
             <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
-            <div class="skeleton-row"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text sm"></div></div>
         </div>
-
-        <div class="card span-2" id="cron-card">
-            <div class="section-title">⏰ 定时任务</div>
-            <div class="skeleton skeleton-text lg"></div>
-            <div class="skeleton skeleton-text sm"></div>
-        </div>
-
         </div>
 
         <div class="uptime-bar">
@@ -712,9 +678,9 @@
             <div style="font-size:14px;font-weight:600;margin-bottom:10px">⚙️ 驱动引擎</div>
             <div id="engine-list">
                 <div class="info-row"><span>🤖 LLM</span><span style="color:var(--hint)">--</span></div>
-                <div class="info-row"><span>🧠 VLM</span><span style="color:var(--hint)">--</span></div>
-                <div class="info-row"><span>🧮 Embedding</span><span style="color:var(--hint)">--</span></div>
-                <div class="info-row"><span>📊 记忆总量</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>💾 记忆</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>🧮 向量引擎</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>🔎 向量库</span><span style="color:var(--hint)">--</span></div>
             </div>
         </div>
 
@@ -729,12 +695,18 @@
 
         <div class="section-title">🧠 记忆引擎</div>
         <div class="memory-stats-grid" id="memory-stats-grid">
-            <!-- 左侧：今日调用 -->
+            <!-- 左侧：写入 + 查询 -->
             <div class="memory-left">
-                <div class="memory-row" id="stat-calls-box">
+                <div class="memory-row" id="stat-writes-box">
                     <div class="memory-info">
-                        <div class="stat-num" id="stat-mem-calls">--</div>
-                        <div class="stat-label">今日调用</div>
+                        <div class="stat-num" id="stat-mem-writes">--</div>
+                        <div class="stat-label">今日写入</div>
+                    </div>
+                </div>
+                <div class="memory-row" id="stat-queries-box">
+                    <div class="memory-info">
+                        <div class="stat-num" id="stat-mem-queries">--</div>
+                        <div class="stat-label">今日查询</div>
                     </div>
                 </div>
             </div>
@@ -828,26 +800,10 @@
 
     <script>
         const API = '/api';
-        const TOKEN='hermes...2024';
+        const TOKEN = 'hermes-mini-app-2024';
         const tg = window.Telegram?.WebApp;
         if (tg) { tg.expand(); tg.setHeaderColor('#1a1a2e'); }
-        if (tg?.ReadyButton) { tg.ready(); }
-        
-        // esc - escape HTML entities
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-        
-        function refreshSystemInfo() {
-            fetch(API+'/hermes/summary').then(r=>r.json()).then(d=>{
-                if (!d.model) return;
-                document.getElementById('model-name').textContent = d.model || 'Unknown';
-                document.getElementById('uptime').textContent = d.uptime || 'N/A';
-                document.getElementById('version').textContent = d.version || 'N/A';
-            }).catch(()=>{});
-            fetch(API+'/oci/billing').then(r=>r.json()).then(d=>{
-                document.getElementById('oci-billing-value').textContent = d.total_sgd ? d.total_sgd+' SGD' : 'N/A';
-            }).catch(()=>{});
-        }
-        
+
         function switchTab(tab) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -991,34 +947,27 @@
             document.getElementById('load-detail').textContent = `1m: ${s.cpu.load1.toFixed(2)}  5m: ${s.cpu.load5.toFixed(2)}`;
             
             // Uptime
-            const uptime = s.uptime && s.uptime > 0 ? formatUptime(s.uptime) : '--';
+            const uptime = formatUptime(s.uptime);
             document.getElementById('stat-uptime-monitor').textContent = uptime;
             document.getElementById('stat-uptime-hermes').textContent = uptime;
             document.getElementById('stat-uptime-ops').textContent = uptime;
             
             // Net speed
-            var ns = s.io && s.io.net_speed ? s.io.net_speed : (s.net_speed || null);
-            if (ns) {
-                document.getElementById('net-up').textContent = formatSpeed(ns.upload_per_sec || ns.upload || 0);
-                document.getElementById('net-down').textContent = formatSpeed(ns.download_per_sec || ns.download || 0);
-            } else {
-                // fallback: try top-level net fields
-                if (s.net) {
-                    document.getElementById('net-up').textContent = formatSpeed(s.net.upload || 0);
-                    document.getElementById('net-down').textContent = formatSpeed(s.net.download || 0);
-                }
+            if (s.io && s.io.net_speed) {
+                document.getElementById('net-up').textContent = formatSpeed(s.io.net_speed.upload_per_sec);
+                document.getElementById('net-down').textContent = formatSpeed(s.io.net_speed.download_per_sec);
             }
             
             // Processes
             const proc = d.processes;
-            document.getElementById('cpu-top').innerHTML = '<div class="section-title">CPU TOP</div>' + (proc.cpu_top || []).slice(0,4).map(p => `
+            document.getElementById('cpu-top').innerHTML = '<div class="section-title">CPU TOP</div>' + (proc.cpu_top || []).slice(0,3).map(p => `
                 <div class="proc-item">
                     <span class="proc-name">${esc(p.name)}</span>
                     <span class="proc-cpu">${p.cpu}%</span>
                 </div>
             `).join('') || '<div class="section-title">CPU TOP</div><div style="color:var(--hint);font-size:11px">无数据</div>';
             
-            document.getElementById('mem-top').innerHTML = '<div class="section-title">内存 TOP</div>' + (proc.mem_top || []).slice(0,4).map(p => {
+            document.getElementById('mem-top').innerHTML = '<div class="section-title">内存 TOP</div>' + (proc.mem_top || []).slice(0,3).map(p => {
                 const mb = p.memory / 1048576;
                 const memStr = mb >= 1024 ? (mb/1024).toFixed(1)+'G' : mb.toFixed(0)+'M';
                 return `<div class="proc-item">
@@ -1084,20 +1033,28 @@
                 // Memory
                 const memInfo = d.memory || {};
                 document.getElementById('stat-memory').textContent = memInfo.total || '--';
-                document.getElementById('stat-mem-calls').textContent = memInfo.today_calls || 0;
+                document.getElementById('stat-mem-queries').textContent = memInfo.today_queries || 0;
+                document.getElementById('stat-mem-writes').textContent = memInfo.today_writes || 0;
                 
-                const hasCalls = (memInfo.today_calls || 0) > 0;
+                const hasWrites = (memInfo.today_writes || 0) > 0;
+                const hasQueries = (memInfo.today_queries || 0) > 0;
+                const hasActivity = hasWrites || hasQueries;
                 
-                document.getElementById('stat-calls-box')?.classList.toggle('idle', !hasCalls);
-                document.getElementById('stat-brain')?.classList.toggle('idle', !hasCalls);
+                document.getElementById('write-bridge')?.classList.toggle('idle', !hasWrites);
+                document.getElementById('query-bridge')?.classList.toggle('idle', !hasQueries);
+                document.getElementById('stat-brain')?.classList.toggle('idle', !hasActivity);
                 
-                // Engine card data comes from d.vlm, d.embedding_model, memInfo.total
+                // Embedding
+                const embedInfo = d.embedding || { engine: '--', models: [], vector_db: '--', active: false };
+                const embedModel = embedInfo.models.length > 0 
+                    ? embedInfo.models.map(m => m.name).join(', ')
+                    : (embedInfo.active ? '无' : '离线');
 
                 const engines = [
                     { name: 'LLM', value: modelInfo.model, icon: '🤖' },
-                    { name: 'VLM', value: d.vlm || '--', icon: '🧠' },
-                    { name: 'Embedding', value: d.embedding_model || '--', icon: '🧮' },
-                    { name: '记忆总量', value: memInfo.total || 0, icon: '📊' },
+                    { name: '记忆', value: memInfo.provider || '--', icon: '💾' },
+                    { name: '向量引擎', value: embedInfo.engine + ' · ' + embedModel, icon: '🧮' },
+                    { name: '向量库', value: embedInfo.vector_db, icon: '🔎' },
                 ];
                 document.getElementById('engine-list').innerHTML = engines.map(e => `
                     <div class="info-row">
@@ -1226,6 +1183,13 @@
                                 // reasoning 实时显示到聊天气泡（蓝色斜体）
                                 assistantDiv.innerHTML += `<span style="color:#60a5fa;font-style:italic;font-size:13px">${esc(d.reasoning)}</span>`;
                                 box.scrollTop = box.scrollHeight;
+                                // 同时追加到 ops-log
+                                const logEl = document.getElementById('ops-log');
+                                if (logEl) {
+                                    const ts = new Date().toLocaleTimeString('zh-CN');
+                                    logEl.innerHTML += `<div style="color:#60a5fa;font-size:11px;margin:2px 0">🤔 [${ts}] ${esc(d.reasoning)}</div>`;
+                                    logEl.scrollTop = logEl.scrollHeight;
+                                }
                             } else if (d.content) {
                                 fullText += d.content;
                                 assistantDiv.textContent = fullText;
@@ -1330,61 +1294,6 @@
                 }
             } catch(e) {}
         }
-
-        // === OCI Billing ===
-        async function refreshOciBilling() {
-            try {
-                const r = await fetch(API + '/oci/billing');
-                const d = await r.json();
-                if (d.status === 'ok') {
-                    const updated = new Date(d.updated_at).toLocaleString('zh-CN');
-                    document.getElementById('oci-billing-card').innerHTML = '\n                        <div class="section-title">☁️ OCI 账单</div>\n                        <div class="traffic-row">\n                            <span class="traffic-label">当月费用</span>\n                            <span class="traffic-value" style="color:var(--accent)">' + d.total_sgd + ' ' + d.currency + '</span>\n                        </div>\n                        <div class="traffic-row">\n                            <span class="traffic-label">账单月份</span>\n                            <span class="traffic-value">' + d.month + '</span>\n                        </div>\n                        <div class="traffic-row">\n                            <span class="traffic-label">更新于</span>\n                            <span class="traffic-value" style="font-size:11px;color:var(--hint)">' + updated + '</span>\n                        </div>\n                    ';
-                } else {
-                    document.getElementById('oci-billing-card').innerHTML = '\n                        <div class="section-title">☁️ OCI 账单</div>\n                        <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--danger)">' + (d.error || '加载失败') + '</span></div>\n                    ';
-                }
-            } catch(e) {
-                document.getElementById('oci-billing-card').innerHTML = '\n                    <div class="section-title">☁️ OCI 账单</div>\n                    <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--danger)">网络错误</span></div>\n                ';
-            }
-        }
-
-        // === Cron Jobs ===
-        async function refreshCronJobs() {
-            try {
-                const r = await fetch(API + '/cron/list');
-                const d = await r.json();
-                const jobs = d.jobs || [];
-                if (jobs.length === 0) {
-                    document.getElementById('cron-card').innerHTML = '\n                        <div class="section-title">⏰ 定时任务</div>\n                        <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--hint)">暂无定时任务</span></div>\n                    ';
-                } else {
-                    const rows = jobs.map(function(j) {
-                        var name = j.name || j.job_id || '未知';
-                        var status = (j.status || '').toLowerCase();
-                        var isOk = (status === 'ok' || status === 'success' || status === 'completed');
-                        var statusColor = isOk ? 'var(--accent)' : 'var(--danger)';
-                        var statusText = isOk ? '✅ 成功' : '❌ 失败';
-                        var nextRaw = j.next_run || '';
-                        var next = '--';
-                        if (nextRaw) {
-                            try {
-                                var nd = new Date(nextRaw);
-                                var pad = function(n){ return n < 10 ? '0'+n : ''+n; };
-                                next = pad(nd.getMonth()+1)+'/'+pad(nd.getDate())+' '+pad(nd.getHours())+':'+pad(nd.getMinutes());
-                            } catch(e) { next = nextRaw.substring(5,16); }
-                        }
-                        return '<div class="cron-job-row">\n                            <span class="cron-name">' + esc(name) + '</span>\n                            <span class="cron-status" style="color:' + statusColor + '">' + statusText + '</span>\n                            <span class="cron-next">下次 ' + esc(next) + '</span>\n                        </div>';
-                    }).join('');
-                    document.getElementById('cron-card').innerHTML = '\n                        <div class="section-title">⏰ 定时任务 (' + jobs.length + ')</div>\n                        ' + rows + '\n                    ';
-                }
-            } catch(e) {
-                document.getElementById('cron-card').innerHTML = '\n                    <div class="section-title">⏰ 定时任务</div>\n                    <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--danger)">网络错误</span></div>\n                ';
-            }
-        }
-
-        // Auto-refresh
-        refreshOciBilling();
-        refreshCronJobs();
-        setInterval(refreshOciBilling, 600000);
-        setInterval(refreshCronJobs, 30000);
     </script>
 </body>
 </html>

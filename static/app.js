@@ -1,5 +1,5 @@
 const API = '/api';
-        const TOKEN = 'hermes-mini-app-2024';
+        const TOKEN='hermes...2024';
         const tg = window.Telegram?.WebApp;
         if (tg) { tg.expand(); tg.setHeaderColor('#1a1a2e'); }
 
@@ -82,7 +82,7 @@ const API = '/api';
                 const r = await fetch(API + '/network');
                 const d = await r.json();
                 const MONTHLY_QUOTA = 10 * 1024 * 1024 * 1024 * 1024; // 10TB
-                
+
                 if (d.monthly) {
                     const rx = formatBytes(d.monthly.rx);
                     const tx = formatBytes(d.monthly.tx);
@@ -108,14 +108,14 @@ const API = '/api';
             try {
                 const r = await fetch(API + '/processes');
                 const d = await r.json();
-                
+
                 document.getElementById('cpu-top').innerHTML = (d.top_cpu || []).map(p => `
                     <div class="proc-item">
                         <span class="proc-name">${esc(p.name)}</span>
                         <span class="proc-cpu">${p.cpu}%</span>
                     </div>
                 `).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
-                
+
                 document.getElementById('mem-top').innerHTML = (d.top_mem || []).map(p => {
                     return `<div class="proc-item">
                         <span class="proc-name">${esc(p.name)}</span>
@@ -143,11 +143,79 @@ const API = '/api';
             } catch(e) {}
         }
 
+        // === OCI 账单 ===
+        async function refreshOciBilling() {
+            try {
+                const r = await fetch(API + '/oci/billing');
+                const d = await r.json();
+                if (d.status === 'ok') {
+                    const updated = new Date(d.updated_at).toLocaleString('zh-CN');
+                    document.getElementById('oci-billing-card').innerHTML = `
+                        <div class="section-title">☁️ OCI 账单</div>
+                        <div class="traffic-row">
+                            <span class="traffic-label">当月费用</span>
+                            <span class="traffic-value" style="color:var(--accent)">${d.total_sgd} ${d.currency}</span>
+                        </div>
+                        <div class="traffic-row">
+                            <span class="traffic-label">账单月份</span>
+                            <span class="traffic-value">${d.month}</span>
+                        </div>
+                        <div class="traffic-row">
+                            <span class="traffic-label">更新于</span>
+                            <span class="traffic-value" style="font-size:11px;color:var(--hint)">${updated}</span>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('oci-billing-card').innerHTML = `
+                        <div class="section-title">☁️ OCI 账单</div>
+                        <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--danger)">${d.error || '加载失败'}</span></div>
+                    `;
+                }
+            } catch(e) {
+                document.getElementById('oci-billing-card').innerHTML = `
+                    <div class="section-title">☁️ OCI 账单</div>
+                    <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--danger)">网络错误</span></div>
+                `;
+            }
+        }
+
+        // === Cron Jobs ===
+        async function refreshCronJobs() {
+            try {
+                const r = await fetch(API + '/cron/list');
+                const d = await r.json();
+                const jobs = d.jobs || [];
+                if (jobs.length === 0) {
+                    document.getElementById('cron-card').innerHTML = `
+                        <div class="section-title">⏰ 定时任务</div>
+                        <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--hint)">暂无定时任务</span></div>
+                    `;
+                } else {
+                    document.getElementById('cron-card').innerHTML = `
+                        <div class="section-title">⏰ 定时任务 (${jobs.length})</div>
+                        ${jobs.map(j => {
+                            const next = j.next_run || '--';
+                            const name = j.name || j.job_id || '未知';
+                            return `<div class="traffic-row">
+                                <span class="traffic-label">${esc(name)}</span>
+                                <span class="traffic-value" style="font-size:11px;color:var(--hint)">${next}</span>
+                            </div>`;
+                        }).join('')}
+                    `;
+                }
+            } catch(e) {
+                document.getElementById('cron-card').innerHTML = `
+                    <div class="section-title">⏰ 定时任务</div>
+                    <div class="traffic-row"><span class="traffic-label">状态</span><span class="traffic-value" style="color:var(--danger)">网络错误</span></div>
+                `;
+            }
+        }
+
         // === Hermes ===
         async function loadHermesData() {
             let modelInfo = { model: '--', provider: '--' };
             let memInfo = { provider: '--', count: 0 };
-            
+
             // Model
             try {
                 const r = await fetch(API + '/hermes/model');
@@ -179,21 +247,21 @@ const API = '/api';
                 document.getElementById('stat-memory').textContent = md.count || '--';
                 document.getElementById('stat-mem-queries').textContent = md.today_queries || 0;
                 document.getElementById('stat-mem-writes').textContent = md.today_writes || 0;
-                
+
                 // 控制动画：值为0时停止
                 const writeBridge = document.getElementById('write-bridge');
                 const queryBridge = document.getElementById('query-bridge');
                 const brain = document.getElementById('stat-brain');
-                
+
                 const hasWrites = (md.today_writes || 0) > 0;
                 const hasQueries = (md.today_queries || 0) > 0;
                 const hasActivity = hasWrites || hasQueries;
-                
+
                 writeBridge?.classList.toggle('idle', !hasWrites);
                 queryBridge?.classList.toggle('idle', !hasQueries);
                 brain?.classList.toggle('idle', !hasActivity);
             } catch(e) {}
-            
+
             // 驱动引擎
             let embedInfo = { engine: '--', models: [], vector_db: '--', active: false };
             try {
@@ -202,7 +270,7 @@ const API = '/api';
                 embedInfo = ed;
             } catch(e) {}
 
-            const embedModel = embedInfo.models.length > 0 
+            const embedModel = embedInfo.models.length > 0
                 ? embedInfo.models.map(m => m.name).join(', ')
                 : (embedInfo.active ? '无' : '离线');
 
@@ -228,7 +296,7 @@ const API = '/api';
             opsHistory.unshift(`[${time}] ${msg}`);
             if (opsHistory.length > 10) opsHistory.pop();
             const colors = { info: 'var(--text)', success: 'var(--success)', error: 'var(--danger)' };
-            document.getElementById('ops-log').innerHTML = opsHistory.map(m => 
+            document.getElementById('ops-log').innerHTML = opsHistory.map(m =>
                 `<div style="color:${colors[type] || 'var(--text)'};font-size:12px;padding:4px 0">${m}</div>`
             ).join('');
         }
@@ -281,6 +349,8 @@ const API = '/api';
         refreshProcesses();
         refreshServices();
         refreshMonthlyTraffic();
+        refreshOciBilling();
+        refreshCronJobs();
         loadHermesData();
         checkOpsAccess();
 
@@ -288,6 +358,8 @@ const API = '/api';
         setInterval(refreshProcesses, 5000);
         setInterval(refreshServices, 15000);
         setInterval(refreshMonthlyTraffic, 30000);
+        setInterval(refreshOciBilling, 600000);  // OCI 账单每10分钟更新一次
+        setInterval(refreshCronJobs, 30000);     // Cron jobs每30秒刷新
         setInterval(loadHermesData, 30000);
 
         // 当前时间显示（每秒更新）
@@ -318,6 +390,7 @@ const API = '/api';
                 }
             } catch(e) {
                 document.getElementById('ops-login').style.display = 'block';
+                document.getElementById('ops-panel').style.display = 'none';
                 document.getElementById('ops-ip-msg').textContent = '无法验证访问权限，请输入密码';
             }
         }
@@ -376,7 +449,7 @@ const API = '/api';
                 const body = { message: msg };
                 if (opsPassword) body.ops_password = opsPassword;
 
-                const r = await fetch(API + '/chat/gemma', {
+                const r = await fetch(API + '/chat/qwen35', {
                     method: 'POST',
                     headers: { 'X-API-Token': TOKEN, 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
@@ -415,6 +488,16 @@ const API = '/api';
                                 if (data.content) {
                                     assistantDiv.textContent += data.content;
                                     messagesEl.scrollTop = messagesEl.scrollHeight;
+                                }
+                                if (data.reasoning) {
+                                    // 同时显示到聊天区和操作日志
+                                    assistantDiv.innerHTML += `<span style="color:#60a5fa;font-style:italic;font-size:13px">${esc(data.reasoning)}</span>`;
+                                    const logEl = document.getElementById('ops-log');
+                                    if (logEl) {
+                                        const ts = new Date().toLocaleTimeString('zh-CN');
+                                        logEl.innerHTML += `<div style="color:#60a5fa;font-size:11px;margin:2px 0">[🤔 ${ts}] ${esc(data.reasoning)}</div>`;
+                                        logEl.scrollTop = logEl.scrollHeight;
+                                    }
                                 }
                                 if (data.done) {
                                     statusEl.textContent = '完成';

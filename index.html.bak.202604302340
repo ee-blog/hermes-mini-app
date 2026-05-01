@@ -712,9 +712,9 @@
             <div style="font-size:14px;font-weight:600;margin-bottom:10px">⚙️ 驱动引擎</div>
             <div id="engine-list">
                 <div class="info-row"><span>🤖 LLM</span><span style="color:var(--hint)">--</span></div>
-                <div class="info-row"><span>🧠 VLM</span><span style="color:var(--hint)">--</span></div>
-                <div class="info-row"><span>🧮 Embedding</span><span style="color:var(--hint)">--</span></div>
-                <div class="info-row"><span>📊 记忆总量</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>💾 记忆</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>🧮 向量引擎</span><span style="color:var(--hint)">--</span></div>
+                <div class="info-row"><span>🔎 向量库</span><span style="color:var(--hint)">--</span></div>
             </div>
         </div>
 
@@ -729,12 +729,18 @@
 
         <div class="section-title">🧠 记忆引擎</div>
         <div class="memory-stats-grid" id="memory-stats-grid">
-            <!-- 左侧：今日调用 -->
+            <!-- 左侧：写入 + 查询 -->
             <div class="memory-left">
-                <div class="memory-row" id="stat-calls-box">
+                <div class="memory-row" id="stat-writes-box">
                     <div class="memory-info">
-                        <div class="stat-num" id="stat-mem-calls">--</div>
-                        <div class="stat-label">今日调用</div>
+                        <div class="stat-num" id="stat-mem-writes">--</div>
+                        <div class="stat-label">今日写入</div>
+                    </div>
+                </div>
+                <div class="memory-row" id="stat-queries-box">
+                    <div class="memory-info">
+                        <div class="stat-num" id="stat-mem-queries">--</div>
+                        <div class="stat-label">今日查询</div>
                     </div>
                 </div>
             </div>
@@ -1084,20 +1090,28 @@
                 // Memory
                 const memInfo = d.memory || {};
                 document.getElementById('stat-memory').textContent = memInfo.total || '--';
-                document.getElementById('stat-mem-calls').textContent = memInfo.today_calls || 0;
+                document.getElementById('stat-mem-queries').textContent = memInfo.today_queries || 0;
+                document.getElementById('stat-mem-writes').textContent = memInfo.today_writes || 0;
                 
-                const hasCalls = (memInfo.today_calls || 0) > 0;
+                const hasWrites = (memInfo.today_writes || 0) > 0;
+                const hasQueries = (memInfo.today_queries || 0) > 0;
+                const hasActivity = hasWrites || hasQueries;
                 
-                document.getElementById('stat-calls-box')?.classList.toggle('idle', !hasCalls);
-                document.getElementById('stat-brain')?.classList.toggle('idle', !hasCalls);
+                document.getElementById('write-bridge')?.classList.toggle('idle', !hasWrites);
+                document.getElementById('query-bridge')?.classList.toggle('idle', !hasQueries);
+                document.getElementById('stat-brain')?.classList.toggle('idle', !hasActivity);
                 
-                // Engine card data comes from d.vlm, d.embedding_model, memInfo.total
+                // Embedding
+                const embedInfo = d.embedding || { engine: '--', models: [], vector_db: '--', active: false };
+                const embedModel = embedInfo.models.length > 0 
+                    ? embedInfo.models.map(m => m.name).join(', ')
+                    : (embedInfo.active ? '无' : '离线');
 
                 const engines = [
                     { name: 'LLM', value: modelInfo.model, icon: '🤖' },
-                    { name: 'VLM', value: d.vlm || '--', icon: '🧠' },
-                    { name: 'Embedding', value: d.embedding_model || '--', icon: '🧮' },
-                    { name: '记忆总量', value: memInfo.total || 0, icon: '📊' },
+                    { name: '记忆', value: memInfo.provider || '--', icon: '💾' },
+                    { name: '向量引擎', value: embedInfo.engine + ' · ' + embedModel, icon: '🧮' },
+                    { name: '向量库', value: embedInfo.vector_db, icon: '🔎' },
                 ];
                 document.getElementById('engine-list').innerHTML = engines.map(e => `
                     <div class="info-row">

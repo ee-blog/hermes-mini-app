@@ -228,25 +228,24 @@ def _preheat_cpu():
 _preheat_cpu()
 
 def _get_memory_engine_stats():
-    """获取记忆引擎统计 — 从 OpenViking API获取
-    
-    简化逻辑（2026-05-01）：每调用一次 openviking MCP 工具就计为一次调用，
-    不再区分读写类型（因 openviking 读取不走 tool_calls，统计永远为0）
-    """
+    """获取记忆引擎统计 — 供 blog-widget 等复用"""
     count = 0
-    today_calls = 0
+    today_queries = 0
+    today_writes = 0
     try:
-        import glob
+        import sqlite3, shutil, tempfile
         from datetime import datetime
-        # 从 OpenViking API获取记忆总量
-        try:
-            req = urllib.request.Request('http://127.0.0.1:1933/api/v1/stats/memories')
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                ov_stats = json.loads(resp.read())
-                count = ov_stats.get('result', {}).get('total_memories', 0)
-        except Exception:
-            pass
-        # 扫描今日 session 日志统计 openviking MCP 工具调用次数
+        import glob
+        db_path = os.path.expanduser('~/.hermes/mem0-local-data/collection/hermes_memories/storage.sqlite')
+        if os.path.exists(db_path):
+            fd, tmp_path = tempfile.mkstemp(suffix='.sqlite')
+            os.close(fd)
+            shutil.copy(db_path, tmp_path)
+            conn = sqlite3.connect(tmp_path)
+            cursor = conn.execute('SELECT COUNT(*) FROM points')
+            count = cursor.fetchone()[0]
+            conn.close()
+            os.unlink(tmp_path)
         today = datetime.now().strftime('%Y%m%d')
         sessions_dir = os.path.join(HERMES_HOME, 'sessions/')
         for f in glob.glob(f'{sessions_dir}{today}_*.jsonl'):
@@ -260,13 +259,14 @@ def _get_memory_engine_stats():
                         if msg.get('role') == 'assistant':
                             for tc in msg.get('tool_calls', []):
                                 name = tc.get('function', {}).get('name', '').lower()
-                                # 只要是 mcp_openviking_* 工具就计数
-                                if 'mcp_openviking' in name:
-                                    today_calls += 1
+                                if 'mem0_search' in name or 'mem0_profile' in name:
+                                    today_queries += 1
+                                elif 'mem0_conclude' in name or ('memory' in name and 'add' in name):
+                                    today_writes += 1
             except: pass
     except Exception as e:
         app.logger.error(f"Memory engine stats error: {e}")
-    return {'total': count, 'today_calls': today_calls}
+    return {'total': count, 'today_queries': today_queries, 'today_writes': today_writes}
 
 @app.route('/api/system')
 def system_stats():
@@ -665,19 +665,26 @@ def hermes_memory():
             if 'Provider:' in line:
                 provider = line.split('Provider:')[1].strip()
         
-        # 获取记忆总数 - 从 OpenViking API
+        # 获取 mem0 记录数 - 从 qdrant sqlite 存储
         count = '--'
         try:
-            import urllib.request
-            req = urllib.request.Request(
-                'http://127.0.0.1:1933/api/v1/stats/memories',
-                headers={'Content-Type': 'application/json'}
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())
-                count = data.get('result', {}).get('total_memories', '--')
+            import sqlite3
+            import shutil
+            import tempfile
+            db_path = os.path.expanduser('~/.hermes/mem0-local-data/collection/hermes_memories/storage.sqlite')
+            if os.path.exists(db_path):
+                # 复制到临时文件避免锁
+                fd, tmp_path = tempfile.mkstemp(suffix='.sqlite')
+                os.close(fd)
+                shutil.copy(db_path, tmp_path)
+                conn = sqlite3.connect(tmp_path)
+                cursor = conn.execute('SELECT COUNT(*) FROM points')
+                count = cursor.fetchone()[0]
+                conn.close()
+                os.unlink(tmp_path)
         except Exception as e:
             app.logger.error(f"Memory count error: {e}")
+            count = '--'
         
         # 今日记忆统计（从 session 文件统计工具调用）
         today_queries = 0
@@ -703,24 +710,12 @@ def hermes_memory():
                                 tool_calls = msg.get('tool_calls', [])
                                 for tc in tool_calls:
                                     name = tc.get('function', {}).get('name', '').lower()
-                                    if name == 'memory':
-                                        # memory 工具：动作藏在 arguments 的 action 字段里
-                                        args_str = tc.get('function', {}).get('arguments', '{}')
-                                        try:
-                                            args = json.loads(args_str)
-                                            action = args.get('action', '').lower()
-                                            if action in ('search', 'read', 'query'):
-                                                today_queries += 1
-                                            elif action in ('add', 'write'):
-                                                today_writes += 1
-                                        except:
-                                            pass
-                                    elif 'memory' in name:
-                                        # 兼容其他 memory 相关工具
-                                        if 'search' in name or 'read' in name or 'query' in name:
-                                            today_queries += 1
-                                        elif 'add' in name or 'write' in name:
-                                            today_writes += 1
+                                    # 查询类工具
+                                    if 'mem0_search' in name or 'mem0_profile' in name:
+                                        today_queries += 1
+                                    # 写入类工具
+                                    elif 'mem0_conclude' in name or ('memory' in name and 'add' in name):
+                                        today_writes += 1
                 except:
                     pass
         except Exception as e:
@@ -802,23 +797,23 @@ def hermes_summary():
         result['memory'].update(_get_memory_engine_stats())
     except: pass
     
-    # Embedding + VLM — 从 OpenViking 配置读取
+    # Embedding (llama.cpp)
     try:
-        ov_conf_path = os.path.expanduser('~/.openviking/ov.conf')
-        if os.path.exists(ov_conf_path):
-            with open(ov_conf_path, 'r') as f:
-                ov_conf = yaml.safe_load(f) or {}
-            # VLM: 从 openviking 配置取
-            vlm_model = ov_conf.get('vlm', {}).get('model', 'MiniMax-M2.7')
-            result['vlm'] = vlm_model
-            # Embedding 模型
-            embed_model = ov_conf.get('embedding', {}).get('model', 'bge-small-zh-v1.5-f16')
-            result['embedding_model'] = embed_model
-            result['embedding'] = {'model': embed_model, 'provider': 'local'}
-        else:
-            result['vlm'] = 'MiniMax-M2.7'
-            result['embedding_model'] = 'bge-small-zh-v1.5-f16'
-            result['embedding'] = {'model': 'bge-small-zh-v1.5-f16', 'provider': 'local'}
+        embed_active = subprocess.run(['systemctl', 'is-active', 'llama-cpp-embed'], capture_output=True, text=True, timeout=5).stdout.strip() == 'active'
+        models = []
+        if embed_active:
+            try:
+                req = urllib.request.Request('http://127.0.0.1:8081/v1/models')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdata = json.loads(resp.read())
+                    for m in mdata.get('data', []):
+                        # 提取模型大小如 0.6B, 1.7B
+                        full_name = m.get('id', 'unknown')
+                        size_match = re.search(r'(\d+\.\d+B|\d+B)', full_name)
+                        name = size_match.group(1) if size_match else full_name.replace('.gguf', '')
+                        models.append({'name': name, 'size': ''})
+            except: pass
+        result['embedding'] = {'engine': 'llama.cpp', 'active': embed_active, 'models': models, 'vector_db': 'Qdrant'}
     except: pass
     
     return jsonify(result)
@@ -826,18 +821,31 @@ def hermes_summary():
 
 @app.route('/api/hermes/embedding')
 def hermes_embedding_info():
-    """获取 Embedding 模型信息 — OpenViking 本地 embedding"""
+    """获取向量引擎信息 (llama.cpp embedding 模型)"""
     try:
-        ov_conf_path = os.path.expanduser('~/.openviking/ov.conf')
-        embed_model = 'bge-small-zh-v1.5-f16'
-        if os.path.exists(ov_conf_path):
-            with open(ov_conf_path, 'r') as f:
-                ov_conf = yaml.safe_load(f) or {}
-            embed_model = ov_conf.get('embedding', {}).get('model', embed_model)
+        embed_active = subprocess.run(
+            ['systemctl', 'is-active', 'llama-cpp-embed'], capture_output=True, text=True, timeout=5
+        ).stdout.strip() == 'active'
+        
+        models = []
+        if embed_active:
+            try:
+                req = urllib.request.Request('http://127.0.0.1:8081/v1/models')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdata = json.loads(resp.read())
+                    for m in mdata.get('data', []):
+                        # 提取模型大小如 0.6B, 1.7B
+                        full_name = m.get('id', 'unknown')
+                        size_match = re.search(r'(\d+\.\d+B|\d+B)', full_name)
+                        name = size_match.group(1) if size_match else full_name.replace('.gguf', '')
+                        models.append({'name': name, 'size': ''})
+            except: pass
+        
         return jsonify({
-            'engine': 'OpenViking',
-            'model': embed_model,
-            'provider': 'local'
+            'engine': 'llama.cpp',
+            'active': embed_active,
+            'models': models,
+            'vector_db': 'Qdrant'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1245,7 +1253,7 @@ def chat_qwen35():
     messages.insert(0, {'role': 'system', 'content': system_content})
     
     llm_url = 'http://127.0.0.1:8082'
-    chat_model = 'Qwen3.5-9B-Q8_0.gguf'
+    chat_model = 'Qwen3.5-9B-UD-Q6_K_XL.gguf'
     
     def generate():
         try:

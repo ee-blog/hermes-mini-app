@@ -115,24 +115,6 @@ BLOG_ASSISTANT_PROMPT = """你是 eebk.com 博客的 AI 助手，名为「小e�
 # 维护页面密码
 OPS_PASSWORD = os.environ.get('OPS_PASSWORD', 'your-ops-password')
 
-
-@app.route("/")
-def index():
-    return send_from_directory(APP_DIR, 'index.html')
-
-@app.route("/api/debug/ip")
-def debug_ip():
-    """临时调试：查看收到的 header"""
-    from flask import jsonify
-    import os
-    return jsonify({
-        "X-Forwarded-For": request.headers.get("X-Forwarded-For", "未设置"),
-        "X-Real-IP": request.headers.get("X-Real-IP", "未设置"),
-        "CF-Connecting-IP": request.headers.get("CF-Connecting-IP", "未设置"),
-        "remote_addr": request.remote_addr,
-        "all_headers": dict(request.headers),
-    })
-
 def get_client_ip():
     """获取客户端真实 IP（支持 nginx 反代）"""
     # 优先检查 nginx 传递的头
@@ -228,25 +210,24 @@ def _preheat_cpu():
 _preheat_cpu()
 
 def _get_memory_engine_stats():
-    """获取记忆引擎统计 — 从 OpenViking API获取
-    
-    简化逻辑（2026-05-01）：每调用一次 openviking MCP 工具就计为一次调用，
-    不再区分读写类型（因 openviking 读取不走 tool_calls，统计永远为0）
-    """
+    """获取记忆引擎统计 — 供 blog-widget 等复用"""
     count = 0
-    today_calls = 0
+    today_queries = 0
+    today_writes = 0
     try:
-        import glob
+        import sqlite3, shutil, tempfile
         from datetime import datetime
-        # 从 OpenViking API获取记忆总量
-        try:
-            req = urllib.request.Request('http://127.0.0.1:1933/api/v1/stats/memories')
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                ov_stats = json.loads(resp.read())
-                count = ov_stats.get('result', {}).get('total_memories', 0)
-        except Exception:
-            pass
-        # 扫描今日 session 日志统计 openviking MCP 工具调用次数
+        import glob
+        db_path = os.path.expanduser('~/.hermes/mem0-local-data/collection/hermes_memories/storage.sqlite')
+        if os.path.exists(db_path):
+            fd, tmp_path = tempfile.mkstemp(suffix='.sqlite')
+            os.close(fd)
+            shutil.copy(db_path, tmp_path)
+            conn = sqlite3.connect(tmp_path)
+            cursor = conn.execute('SELECT COUNT(*) FROM points')
+            count = cursor.fetchone()[0]
+            conn.close()
+            os.unlink(tmp_path)
         today = datetime.now().strftime('%Y%m%d')
         sessions_dir = os.path.join(HERMES_HOME, 'sessions/')
         for f in glob.glob(f'{sessions_dir}{today}_*.jsonl'):
@@ -260,13 +241,14 @@ def _get_memory_engine_stats():
                         if msg.get('role') == 'assistant':
                             for tc in msg.get('tool_calls', []):
                                 name = tc.get('function', {}).get('name', '').lower()
-                                # 只要是 mcp_openviking_* 工具就计数
-                                if 'mcp_openviking' in name:
-                                    today_calls += 1
+                                if 'mem0_search' in name or 'mem0_profile' in name:
+                                    today_queries += 1
+                                elif 'mem0_conclude' in name or ('memory' in name and 'add' in name):
+                                    today_writes += 1
             except: pass
     except Exception as e:
         app.logger.error(f"Memory engine stats error: {e}")
-    return {'total': count, 'today_calls': today_calls}
+    return {'total': count, 'today_queries': today_queries, 'today_writes': today_writes}
 
 @app.route('/api/system')
 def system_stats():
@@ -281,7 +263,7 @@ def system_stats():
 
     return jsonify({
         'cpu': {'percent': cpu_percent, 'cores': psutil.cpu_count(), 'per_core': cpu_per_core, 'load1': round(load1, 2), 'load5': round(load5, 2)},
-        'memory': {'total': memory.total, 'used': memory.total - memory.available, 'percent': (memory.total - memory.available) / memory.total * 100, 'available': memory.available},
+        'memory': {'total': memory.total, 'used': memory.used, 'percent': memory.percent, 'available': memory.available},
         'disk': {'total': disk.total, 'used': disk.used, 'percent': disk.percent, 'free': disk.free},
         'network': {'bytes_sent': net_io.bytes_sent, 'bytes_recv': net_io.bytes_recv},
         'uptime': uptime,
@@ -474,8 +456,8 @@ def hermes_status():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/cron/list')
-def cron_list():
+@app.route('/api/hermes/cron')
+def hermes_cron():
     """获取定时任务详情"""
     try:
         result = subprocess.run(['hermes', 'cron', 'list'], capture_output=True, text=True, timeout=15, env=get_user_env())
@@ -518,18 +500,6 @@ def cron_list():
         return jsonify({'jobs': jobs, 'raw': output})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-@app.route('/api/oci/billing')
-def oci_billing():
-    """获取 OCI 账单缓存"""
-    try:
-        cache_file = '/home/ubuntu/.hermes/scripts/.oci_billing_cache.json'
-        if os.path.exists(cache_file):
-            with open(cache_file) as f:
-                return jsonify(json.load(f))
-        return jsonify({'status': 'no_data', 'error': '缓存文件不存在'}), 404
-    except Exception as e:
-        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 @app.route('/api/hermes/skills')
 def hermes_skills():
@@ -665,19 +635,26 @@ def hermes_memory():
             if 'Provider:' in line:
                 provider = line.split('Provider:')[1].strip()
         
-        # 获取记忆总数 - 从 OpenViking API
+        # 获取 mem0 记录数 - 从 qdrant sqlite 存储
         count = '--'
         try:
-            import urllib.request
-            req = urllib.request.Request(
-                'http://127.0.0.1:1933/api/v1/stats/memories',
-                headers={'Content-Type': 'application/json'}
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())
-                count = data.get('result', {}).get('total_memories', '--')
+            import sqlite3
+            import shutil
+            import tempfile
+            db_path = os.path.expanduser('~/.hermes/mem0-local-data/collection/hermes_memories/storage.sqlite')
+            if os.path.exists(db_path):
+                # 复制到临时文件避免锁
+                fd, tmp_path = tempfile.mkstemp(suffix='.sqlite')
+                os.close(fd)
+                shutil.copy(db_path, tmp_path)
+                conn = sqlite3.connect(tmp_path)
+                cursor = conn.execute('SELECT COUNT(*) FROM points')
+                count = cursor.fetchone()[0]
+                conn.close()
+                os.unlink(tmp_path)
         except Exception as e:
             app.logger.error(f"Memory count error: {e}")
+            count = '--'
         
         # 今日记忆统计（从 session 文件统计工具调用）
         today_queries = 0
@@ -703,24 +680,12 @@ def hermes_memory():
                                 tool_calls = msg.get('tool_calls', [])
                                 for tc in tool_calls:
                                     name = tc.get('function', {}).get('name', '').lower()
-                                    if name == 'memory':
-                                        # memory 工具：动作藏在 arguments 的 action 字段里
-                                        args_str = tc.get('function', {}).get('arguments', '{}')
-                                        try:
-                                            args = json.loads(args_str)
-                                            action = args.get('action', '').lower()
-                                            if action in ('search', 'read', 'query'):
-                                                today_queries += 1
-                                            elif action in ('add', 'write'):
-                                                today_writes += 1
-                                        except:
-                                            pass
-                                    elif 'memory' in name:
-                                        # 兼容其他 memory 相关工具
-                                        if 'search' in name or 'read' in name or 'query' in name:
-                                            today_queries += 1
-                                        elif 'add' in name or 'write' in name:
-                                            today_writes += 1
+                                    # 查询类工具
+                                    if 'mem0_search' in name or 'mem0_profile' in name:
+                                        today_queries += 1
+                                    # 写入类工具
+                                    elif 'mem0_conclude' in name or ('memory' in name and 'add' in name):
+                                        today_writes += 1
                 except:
                     pass
         except Exception as e:
@@ -802,23 +767,23 @@ def hermes_summary():
         result['memory'].update(_get_memory_engine_stats())
     except: pass
     
-    # Embedding + VLM — 从 OpenViking 配置读取
+    # Embedding (llama.cpp)
     try:
-        ov_conf_path = os.path.expanduser('~/.openviking/ov.conf')
-        if os.path.exists(ov_conf_path):
-            with open(ov_conf_path, 'r') as f:
-                ov_conf = yaml.safe_load(f) or {}
-            # VLM: 从 openviking 配置取
-            vlm_model = ov_conf.get('vlm', {}).get('model', 'MiniMax-M2.7')
-            result['vlm'] = vlm_model
-            # Embedding 模型
-            embed_model = ov_conf.get('embedding', {}).get('model', 'bge-small-zh-v1.5-f16')
-            result['embedding_model'] = embed_model
-            result['embedding'] = {'model': embed_model, 'provider': 'local'}
-        else:
-            result['vlm'] = 'MiniMax-M2.7'
-            result['embedding_model'] = 'bge-small-zh-v1.5-f16'
-            result['embedding'] = {'model': 'bge-small-zh-v1.5-f16', 'provider': 'local'}
+        embed_active = subprocess.run(['systemctl', 'is-active', 'llama-cpp-embed'], capture_output=True, text=True, timeout=5).stdout.strip() == 'active'
+        models = []
+        if embed_active:
+            try:
+                req = urllib.request.Request('http://127.0.0.1:8081/v1/models')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdata = json.loads(resp.read())
+                    for m in mdata.get('data', []):
+                        # 提取模型大小如 0.6B, 1.7B
+                        full_name = m.get('id', 'unknown')
+                        size_match = re.search(r'(\d+\.\d+B|\d+B)', full_name)
+                        name = size_match.group(1) if size_match else full_name.replace('.gguf', '')
+                        models.append({'name': name, 'size': ''})
+            except: pass
+        result['embedding'] = {'engine': 'llama.cpp', 'active': embed_active, 'models': models, 'vector_db': 'Qdrant'}
     except: pass
     
     return jsonify(result)
@@ -826,18 +791,31 @@ def hermes_summary():
 
 @app.route('/api/hermes/embedding')
 def hermes_embedding_info():
-    """获取 Embedding 模型信息 — OpenViking 本地 embedding"""
+    """获取向量引擎信息 (llama.cpp embedding 模型)"""
     try:
-        ov_conf_path = os.path.expanduser('~/.openviking/ov.conf')
-        embed_model = 'bge-small-zh-v1.5-f16'
-        if os.path.exists(ov_conf_path):
-            with open(ov_conf_path, 'r') as f:
-                ov_conf = yaml.safe_load(f) or {}
-            embed_model = ov_conf.get('embedding', {}).get('model', embed_model)
+        embed_active = subprocess.run(
+            ['systemctl', 'is-active', 'llama-cpp-embed'], capture_output=True, text=True, timeout=5
+        ).stdout.strip() == 'active'
+        
+        models = []
+        if embed_active:
+            try:
+                req = urllib.request.Request('http://127.0.0.1:8081/v1/models')
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    mdata = json.loads(resp.read())
+                    for m in mdata.get('data', []):
+                        # 提取模型大小如 0.6B, 1.7B
+                        full_name = m.get('id', 'unknown')
+                        size_match = re.search(r'(\d+\.\d+B|\d+B)', full_name)
+                        name = size_match.group(1) if size_match else full_name.replace('.gguf', '')
+                        models.append({'name': name, 'size': ''})
+            except: pass
+        
         return jsonify({
-            'engine': 'OpenViking',
-            'model': embed_model,
-            'provider': 'local'
+            'engine': 'llama.cpp',
+            'active': embed_active,
+            'models': models,
+            'vector_db': 'Qdrant'
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1025,7 +1003,7 @@ def stream():
                 
                 result['system'] = {
                     'cpu': {'percent': cpu_percent, 'per_core': cpu_per_core, 'load1': float(load[0]), 'load5': float(load[1])},
-                    'memory': {'percent': (mem.total - mem.available) / mem.total * 100, 'used': mem.total - mem.available, 'total': mem.total},
+                    'memory': {'percent': mem.percent, 'used': mem.used, 'total': mem.total},
                     'disk': {'percent': disk.percent, 'used': disk.used, 'total': disk.total},
                     'uptime': uptime,
                     'io': io_stats
@@ -1104,7 +1082,7 @@ def dashboard():
         
         result['system'] = {
             'cpu': {'percent': cpu_percent, 'per_core': cpu_per_core, 'load1': float(load[0]), 'load5': float(load[1])},
-            'memory': {'percent': (mem.total - mem.available) / mem.total * 100, 'used': mem.total - mem.available, 'total': mem.total},
+            'memory': {'percent': mem.percent, 'used': mem.used, 'total': mem.total},
             'disk': {'percent': disk.percent, 'used': disk.used, 'total': disk.total},
             'uptime': uptime,
             'io': io_stats
@@ -1206,10 +1184,7 @@ def chat_qwen35():
     """Qwen3.6 聊天 — 智能路由：自动检测URL并抓取"""
     import re
     data = request.get_json(silent=True) or {}
-    msg_content = data.get('message', '')  # 前端维护界面发送格式
     messages = data.get('messages', [])
-    if msg_content and not messages:
-        messages = [{'role': 'user', 'content': msg_content}]
     if not messages:
         return jsonify({'error': 'messages is required'}), 400
     
@@ -1245,7 +1220,7 @@ def chat_qwen35():
     messages.insert(0, {'role': 'system', 'content': system_content})
     
     llm_url = 'http://127.0.0.1:8082'
-    chat_model = 'Qwen3.5-9B-Q8_0.gguf'
+    chat_model = 'Qwen3.6-35B-A3B'
     
     def generate():
         try:
@@ -1257,9 +1232,9 @@ def chat_qwen35():
                 'model': chat_model,
                 'messages': messages,
                 'stream': True,
-                'max_tokens': 1500,
+                'max_tokens': 800,
                 'chat_format': 'chatml',
-                'enable_thinking': False
+                'extra_body': {'enable_thinking': False}
             })
             req = urllib.request.Request(
                 f'{llm_url}/v1/chat/completions',
@@ -1279,10 +1254,8 @@ def chat_qwen35():
                     try:
                         chunk = json.loads(data_str)
                         delta = chunk.get('choices', [{}])[0].get('delta', {})
-                        content = delta.get('content', '') or ''
-                        reasoning = delta.get('reasoning_content', '') or ''
-                        if reasoning:
-                            yield f"data: {json.dumps({'reasoning': reasoning})}\n\n"
+                        # Qwen3.6 thinking mode: content may be empty, fallback to reasoning_content
+                        content = delta.get('content', '') or delta.get('reasoning_content', '')
                         if content:
                             yield f"data: {json.dumps({'content': content})}\n\n"
                     except: pass
@@ -1560,8 +1533,8 @@ def blog_widget():
                 'cores': cpu_per_core,
             },
             'memory': {
-                'percent': (mem.total - mem.available) / mem.total * 100,
-                'used_gb': round((mem.total - mem.available) / 1073741824, 1),
+                'percent': mem.percent,
+                'used_gb': round(mem.used / 1073741824, 1),
                 'total_gb': round(mem.total / 1073741824, 1),
             },
             'disk': {
@@ -1584,7 +1557,105 @@ def blog_widget():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/preview/widget')
+def preview_widget():
+    return send_from_directory(APP_DIR, 'blog-widget-preview.html')
 
+@app.route('/api/preview/chat-widget')
+def preview_chat_widget():
+    """博客聊天 Widget 预览"""
+    return send_from_directory(APP_DIR, 'blog-chat-widget.html')
+
+
+# ============ 博客客服管理 API（代理到 blog-notify）============
+BLOG_NOTIFY_BASE = 'http://127.0.0.1:5000'
+
+@app.route('/api/blog-admin/dashboard')
+@require_ops_access
+def blog_admin_dashboard():
+    """博客客服仪表盘数据"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        r = _req.get(f'{BLOG_NOTIFY_BASE}/admin/api/dashboard', headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/blog-admin/block', methods=['POST'])
+@require_ops_access
+def blog_admin_block():
+    """封禁 IP"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        data = request.get_json()
+        r = _req.post(f'{BLOG_NOTIFY_BASE}/admin/api/block', json=data, headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/blog-admin/unblock', methods=['POST'])
+@require_ops_access
+def blog_admin_unblock():
+    """解封 IP"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        data = request.get_json()
+        r = _req.post(f'{BLOG_NOTIFY_BASE}/admin/api/unblock', json=data, headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/blog-admin/conversation/<session_id>')
+@require_ops_access
+def blog_admin_conversation(session_id):
+    """获取会话详情"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        r = _req.get(f'{BLOG_NOTIFY_BASE}/admin/api/conversation/{session_id}', headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/blog-admin/takeover/<session_id>', methods=['POST'])
+@require_ops_access
+def blog_admin_takeover(session_id):
+    """接管对话"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        r = _req.post(f'{BLOG_NOTIFY_BASE}/admin/api/takeover/{session_id}', headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/blog-admin/release/<session_id>', methods=['POST'])
+@require_ops_access
+def blog_admin_release(session_id):
+    """释放对话"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        r = _req.post(f'{BLOG_NOTIFY_BASE}/admin/api/release/{session_id}', headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/blog-admin/send', methods=['POST'])
+@require_ops_access
+def blog_admin_send():
+    """发送消息给访客"""
+    try:
+        import requests as _req
+        token = os.environ.get('BLOG_ADMIN_TOKEN', os.environ.get('ADMIN_TOKEN', 'admin123'))
+        data = request.get_json()
+        r = _req.post(f'{BLOG_NOTIFY_BASE}/admin/api/send-to-visitor', json=data, headers={'X-Admin-Token': token}, timeout=5)
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
