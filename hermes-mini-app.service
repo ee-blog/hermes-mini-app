@@ -1,0 +1,15 @@
+[Unit]
+Description=Hermes Mini App v2
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/hermes-mini-app-v2
+EnvironmentFile=/home/ubuntu/hermes-mini-app-v2/.env
+ExecStart=/home/ubuntu/hermes-mini-app-v2/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 9120
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

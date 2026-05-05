@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Hermes Mini App</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <h1>Hermes Agent</h1>
+    <span class="status-badge online" id="status-badge"><span class="dot"></span>在线</span>
+  </div>
+  <div class="header-sub">
+    <span id="header-time">--</span>
+    <span id="header-model">🤖 --</span>
+  </div>
+</div>
+
+<!-- Tab Nav -->
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="monitor" onclick="switchTab('monitor')">
+    <span class="tab-icon">📊</span>监控
+  </button>
+  <button class="tab-btn" data-tab="hermes" onclick="switchTab('hermes')">
+    <span class="tab-icon">🧠</span>引擎
+  </button>
+  <button class="tab-btn" data-tab="ops" onclick="switchTab('ops')">
+    <span class="tab-icon">🔧</span>维护
+  </button>
+</nav>
+
+<!-- ══ Page: Monitor ══ -->
+<div id="page-monitor" class="page active">
+
+  <div class="gauge-grid">
+    <div class="gauge-card">
+      <div class="gauge-h">
+        <span class="gauge-l">CPU</span>
+        <span class="gauge-v" id="cpu-val">--</span>
+      </div>
+      <div class="bar"><div id="cpu-bar" class="bf" style="width:0%"></div></div>
+      <div class="gauge-d" id="cpu-detail">--</div>
+    </div>
+    <div class="gauge-card">
+      <div class="gauge-h">
+        <span class="gauge-l">内存</span>
+        <span class="gauge-v" id="mem-val">--</span>
+      </div>
+      <div class="bar"><div id="mem-bar" class="bf b-blue" style="width:0%"></div></div>
+      <div class="gauge-d" id="mem-detail">--</div>
+    </div>
+    <div class="gauge-card">
+      <div class="gauge-h">
+        <span class="gauge-l">磁盘</span>
+        <span class="gauge-v" id="disk-val">--</span>
+      </div>
+      <div class="bar"><div id="disk-bar" class="bf b-yellow" style="width:0%"></div></div>
+      <div class="gauge-d" id="disk-detail">--</div>
+    </div>
+    <div class="gauge-card">
+      <div class="gauge-h">
+        <span class="gauge-l">负载</span>
+        <span class="gauge-v" id="load-val">--</span>
+      </div>
+      <div class="gauge-d" id="load-detail" style="margin-top:8px;line-height:1.6">--</div>
+    </div>
+  </div>
+
+  <div class="net-svc-grid">
+  <div class="section-title">🌐 网络流量</div>
+  <div class="section-title">⚡ 服务状态</div>
+  <div class="card traffic-card" id="traffic-card">
+    <div class="tr">
+      <span>↑ 上传</span> <span class="tv up" id="net-up">--</span>
+    </div>
+    <div class="tr">
+      <span>↓ 下载</span> <span class="tv down" id="net-down">--</span>
+    </div>
+    <div class="tr">
+      <span>📊 用量</span> <span id="net-usage">--</span>
+    </div>
+  </div>
+  <div class="card services-card" id="services-card">
+    <div class="skel skel-line"></div>
+    <div class="skel skel-line w60"></div>
+    <div class="skel skel-line"></div>
+    <div class="skel skel-line w40"></div>
+  </div>
+  </div>
+
+  <div class="monitor-col">
+  <div class="section-title">☁️ OCI 费用</div>
+  <div class="card oci-card" id="oci-card">
+    <div class="skel skel-line"></div>
+    <div class="skel skel-line w60"></div>
+  </div>
+
+  <div class="section-title">🏆 TOP 进程</div>
+  <div class="proc-grid">
+    <div class="card proc-card"><div class="sc-title">CPU</div><div id="cpu-top"></div></div>
+    <div class="card proc-card"><div class="sc-title">内存</div><div id="mem-top"></div></div>
+  </div>
+  </div>
+</div>
+
+<!-- ══ Page: Hermes ══ -->
+<div id="page-hermes" class="page">
+
+  <div class="model-card" id="model-card">
+    <span class="model-icon">🧠</span>
+    <div class="model-info">
+      <div class="model-name" id="hermes-model">--</div>
+      <div class="model-provider" id="hermes-provider">Provider: --</div>
+    </div>
+  </div>
+
+  <div class="card platform-card">
+    <div class="card-title">⚙️ 驱动引擎</div>
+    <div class="engine-grid" id="engine-grid">
+      <div class="engine-card" data-engine="llm">
+        <div class="engine-icon">🧠</div>
+        <div class="engine-l">LLM 引擎</div>
+        <div class="engine-v" id="eng-llm">--</div>
+        <div class="engine-sub" id="eng-llm-sub"></div>
+      </div>
+      <div class="engine-card" data-engine="memory">
+        <div class="engine-icon">💾</div>
+        <div class="engine-l">记忆引擎</div>
+        <div class="engine-v" id="eng-memory">--</div>
+        <div class="engine-sub" id="eng-memory-sub"></div>
+      </div>
+      <div class="engine-card" data-engine="vector">
+        <div class="lm-header">
+          <span class="lm-icon">🧮</span>
+          <span class="lm-badge" id="emb-badge">● 空闲</span>
+        </div>
+        <div class="lm-name">向量引擎</div>
+        <div class="lm-model" id="emb-model">--</div>
+        <div class="lm-divider"></div>
+        <div class="lm-row">
+          <span class="lm-lbl">📊 调用</span>
+          <span class="lm-val" id="emb-calls">0</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">📝 处理</span>
+          <span class="lm-val" id="emb-tokens">0 tokens</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">⏱ 上次使用</span>
+          <span class="lm-val" id="emb-last">--</span>
+        </div>
+        <div class="lm-row" id="emb-queue-row">
+          <span class="lm-lbl">📋 队列</span>
+          <span class="lm-val" id="emb-queue">0 待处理</span>
+        </div>
+        <div class="lm-conf-row" id="emb-conf-row" style="display:none">
+          <span>⏳ 预计处理</span>
+          <span class="lm-est" id="emb-est">--</span>
+        </div>
+      </div>
+      <div class="engine-card" data-engine="retrieval">
+        <div class="lm-header">
+          <span class="lm-icon">🔍</span>
+          <span class="lm-badge" id="vlm-badge">● 工作中</span>
+        </div>
+        <div class="lm-name">本地检索</div>
+        <div class="lm-model" id="vlm-model">--</div>
+        <div class="lm-divider"></div>
+        <div class="lm-row">
+          <span class="lm-lbl">🔎 总查询</span>
+          <span class="lm-val" id="vlm-queries">0</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">⏱ 平均延迟</span>
+          <span class="lm-val" id="vlm-latency">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">⏱ 上次调用</span>
+          <span class="lm-val" id="vlm-last">--</span>
+        </div>
+        <div class="lm-row" id="vlm-queue-row">
+          <span class="lm-lbl">📋 队列</span>
+          <span class="lm-val" id="vlm-queue">0 待处理</span>
+        </div>
+        <div class="lm-conf-row" id="vlm-conf-row" style="display:none">
+          <span>⏳ 预计响应</span>
+          <span class="lm-est" id="vlm-est">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🔗 平台连接</div>
+    <div class="platform-grid" id="platform-grid">加载中...</div>
+  </div>
+
+  <div class="section-title">🧠 记忆引擎</div>
+  <div class="memory-grid">
+    <div class="mem-left">
+      <div class="mem-box orange">
+        <div class="mem-num" id="mem-writes">--</div>
+        <div class="mem-lbl">今日提交</div>
+      </div>
+      <div class="mem-box blue">
+        <div class="mem-num" id="mem-queries">--</div>
+        <div class="mem-lbl">今日查询</div>
+      </div>
+    </div>
+    <div class="flow-bridge">
+      <div class="bridge-row">
+        <span class="bridge-dot write-dot wd1">●</span>
+        <span class="bridge-dot write-dot wd2">●</span>
+        <span class="bridge-dot write-dot wd3">●</span>
+      </div>
+      <div class="bridge-row">
+        <span class="bridge-dot query-dot qd1">●</span>
+        <span class="bridge-dot query-dot qd2">●</span>
+        <span class="bridge-dot query-dot qd3">●</span>
+      </div>
+    </div>
+    <div class="mem-brain" id="brain">
+      <div class="brain-icon">🧠</div>
+      <div class="brain-num" id="mem-count">--</div>
+      <div class="brain-lbl">记忆库</div>
+      <div class="brain-pulse"></div>
+      <div class="brain-neurons">
+        <div class="neuron" style="top:10%;left:15%;animation-delay:0s">✦</div>
+        <div class="neuron" style="top:20%;right:10%;animation-delay:.4s">✦</div>
+        <div class="neuron" style="top:50%;left:8%;animation-delay:.8s">✦</div>
+        <div class="neuron" style="bottom:25%;right:18%;animation-delay:1.2s">✦</div>
+        <div class="neuron" style="bottom:10%;left:25%;animation-delay:1.6s">✦</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Page: Ops ══ -->
+<div id="page-ops" class="page">
+
+  <!-- Login gate -->
+  <div id="ops-login" class="card" style="display:none;text-align:center;padding:24px">
+    <div style="font-size:14px;font-weight:600;margin-bottom:16px">🔒 访问验证</div>
+    <div style="font-size:12px;color:var(--hint);margin-bottom:16px" id="ops-msg">检测中...</div>
+    <input type="password" id="ops-pwd" placeholder="输入密码" class="ops-input"
+           onkeydown="if(event.key==='Enter')verifyOps()">
+    <button class="ops-btn" onclick="verifyOps()" style="width:100%;margin-top:8px">验证</button>
+  </div>
+
+  <!-- Panel -->
+    <div id="ops-panel" style="display:none">
+
+    <div class="card-title" style="margin-bottom:12px">⏰ 定时任务</div>
+    <div class="card cron-jobs-card" id="cron-jobs-card">
+      <div id="cron-jobs-list">加载中...</div>
+    </div>
+
+    <div class="card-title" style="margin:18px 0 12px">🚨 紧急操作</div>
+    <div class="ops-grid">
+      <button class="ops-btn primary" onclick="restartSvc('gateway')">⚡ 重启 Gateway</button>
+      <button class="ops-btn danger" onclick="emergencyRestart()">🚨 强制重启</button>
+      <button class="ops-btn" onclick="restartSvc('nginx')">🔄 重启 Nginx</button>
+      <button class="ops-btn" onclick="restartSvc('ollama')">🔄 重启 Ollama</button>
+    </div>
+
+    <div class="card-title" style="margin:18px 0 10px">📋 操作日志</div>
+    <div class="card" id="ops-log" style="min-height:60px;font-size:12px">
+      <span style="color:var(--hint)">点击按钮执行操作</span>
+    </div>
+
+
+  </div>
+</div>
+
+<!-- ══ Global Uptime Bar ══ -->
+<div class="uptime-bar" id="uptime-bar">
+  <span class="heartbeat">♥</span>
+  <span class="uptime-val" id="uptime-val">--</span>
+  <span class="uptime-lbl">运行中</span>
+</div>
+
+<script src="/static/app.js?v=4"></script>
+</body>
+</html>
