@@ -689,8 +689,8 @@ async def local_models_status():
                 result["vlm"]["model"] = vlm["model"]
             if vlm.get("provider"):
                 result["vlm"]["provider"] = vlm["provider"]
-            # Remote API models are always "online"
-            if vlm.get("provider") in ("litellm", "openai", "deepseek"):
+            # Remote API models and local Ollama models are "online" when provider is set
+            if vlm.get("provider") in ("litellm", "openai", "deepseek", "ollama"):
                 result["vlm"]["status"] = "online"
                 result["vlm"]["loaded"] = True
     except Exception:
