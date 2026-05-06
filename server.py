@@ -425,7 +425,7 @@ async def network_stats():
 
 # ── OCI Cost (cached) ──────────────────────────────────────────────
 
-_oci_cache = {"data": None, "ts": 0.0}
+_oci_cache = {"data": None, "ts": 0.0, "prev_total": None}
 _OCI_TTL = 3600  # 1 hour — OCI billing data updates infrequently
 
 @app.get("/api/oci/cost")
@@ -475,14 +475,18 @@ async def oci_cost():
                 "amount": amt,
             })
 
+        cur_total = round(total, 2)
+        prev = _oci_cache.get("prev_total")
+        delta = round(cur_total - prev, 2) if prev is not None else None
         data = {
             "enabled": True,
             "period": start.strftime("%Y-%m"),
             "currency": currency,
-            "total": round(total, 4),
+            "total": cur_total,
+            "delta": delta,
             "services": services,
         }
-        _oci_cache = {"data": data, "ts": now}
+        _oci_cache = {"data": data, "ts": now, "prev_total": cur_total}
         return data
     except Exception as e:
         # Return stale cache if available, otherwise show short error
