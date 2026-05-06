@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Hermes Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=3">
+<link rel="stylesheet" href="/static/style.css?v=4">
 </head>
 <body>
 
@@ -260,12 +260,22 @@
       <div id="cron-jobs-list">加载中...</div>
     </div>
 
+    <div class="card-title" style="margin:18px 0 12px">💬 本地 AI 聊天</div>
+    <div class="card" id="chat-card">
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" class="ops-input" placeholder="问点什么..."
+               onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}">
+        <button class="ops-btn" onclick="sendChat()" id="chat-send-btn">发送</button>
+      </div>
+    </div>
+
     <div class="card-title" style="margin:18px 0 12px">🚨 紧急操作</div>
     <div class="ops-grid">
       <button class="ops-btn primary" onclick="restartSvc('gateway')">⚡ 重启 Gateway</button>
       <button class="ops-btn danger" onclick="emergencyRestart()">🚨 强制重启</button>
       <button class="ops-btn" onclick="restartSvc('nginx')">🔄 重启 Nginx</button>
-      <button class="ops-btn" onclick="restartSvc('ollama')">🔄 重启 Ollama</button>
+      <button class="ops-btn" onclick="restartSvc('server')">🔄 重启服务器</button>
     </div>
 
     <div class="card-title" style="margin:18px 0 10px">📋 操作日志</div>
@@ -284,6 +294,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=4"></script>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>

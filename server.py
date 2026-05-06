@@ -50,6 +50,7 @@ class Config:
         "gateway": (["systemctl", "--user", "restart", "hermes-gateway"], True),
         "nginx": (["sudo", "systemctl", "restart", "nginx"], False),
         "miniapp": (["sudo", "systemctl", "restart", "hermes-mini-app"], False),
+        "server": (["sudo", "reboot"], False),
     }
 
     # Predefined commands for /api/exec/<name>
@@ -1011,6 +1012,74 @@ async def stream_metrics(request: Request):
             await asyncio.sleep(interval)
 
     return EventSourceResponse(event_generator())
+
+
+# ── Chat: llama-server (MiniCPM-V-4_5) ───────────────────────────────
+
+LLAMA_CHAT_URL = "http://127.0.0.1:8080/v1/chat/completions"
+
+
+@app.post("/api/chat")
+async def chat(request: Request):
+    """POST {message} → SSE stream. Only streams 'content' tokens; falls back to reasoning_content if content is empty."""
+    body = await request.json()
+    prompt = body.get("message", "").strip()
+    if not prompt:
+        raise HTTPException(400, "message is required")
+
+    async def token_stream():
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=300, write=10, pool=10)) as client:
+                collected_reasoning = []
+                has_content = False
+
+                async with client.stream("POST", LLAMA_CHAT_URL, json={
+                    "model": "default",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 512,
+                    "stream": True,
+                }) as resp:
+                    if resp.status_code != 200:
+                        error_body = await resp.aread()
+                        yield {"event": "error", "data": f"llama-server {resp.status_code}: {error_body.decode()[:200]}"}
+                        return
+
+                    async for raw_line in resp.aiter_lines():
+                        if not raw_line.startswith("data: "):
+                            continue
+                        payload = raw_line[6:].strip()
+                        if payload == "[DONE]":
+                            # If no content was ever streamed, send reasoning as fallback
+                            if not has_content and collected_reasoning:
+                                reasoning = "".join(collected_reasoning).strip()
+                                if reasoning:
+                                    yield {"event": "token", "data": reasoning}
+                            yield {"event": "done", "data": ""}
+                            return
+                        try:
+                            chunk = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content_tok = delta.get("content") or ""
+                        reasoning_tok = delta.get("reasoning_content") or ""
+
+                        if content_tok:
+                            has_content = True
+                            yield {"event": "token", "data": content_tok}
+                        if reasoning_tok:
+                            collected_reasoning.append(reasoning_tok)
+
+                    # Stream ended without [DONE] — same fallback
+                    if not has_content and collected_reasoning:
+                        reasoning = "".join(collected_reasoning).strip()
+                        if reasoning:
+                            yield {"event": "token", "data": reasoning}
+                    yield {"event": "done", "data": ""}
+        except Exception as e:
+            yield {"event": "error", "data": str(e)}
+
+    return EventSourceResponse(token_stream())
 
 
 # ── Entry ──────────────────────────────────────────────────────────

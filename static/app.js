@@ -468,3 +468,107 @@ connectMonitorStream();
 checkOpsAccess();
 // Preload engine data for smooth tab switching
 loadHermesData();
+
+// ── Chat ────────────────────────────────────────────────
+let chatActive = null; // current EventSource for streaming
+
+function appendChatMsg(role, text, meta) {
+  const box = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.innerHTML = `<div class="chat-bubble">${escapeHtml(text)}</div>${meta?`<div class="chat-meta">${meta}</div>`:''}`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const btn   = document.getElementById('chat-send-btn');
+  const msg   = input.value.trim();
+  if (!msg || sendChat.busy) return;
+
+  sendChat.busy = true;
+  appendChatMsg('user', msg);
+  input.value = '';
+  btn.disabled = true;
+
+  // placeholder for bot
+  const placeholder = document.createElement('div');
+  placeholder.className = 'chat-msg bot';
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble chat-typing';
+  bubble.textContent = '正在思考...';
+  placeholder.appendChild(bubble);
+  document.getElementById('chat-messages').appendChild(placeholder);
+  document.getElementById('chat-messages').scrollTop = 1e9;
+
+  let fullText = '';
+  let firstToken = true;
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg}),
+    });
+
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, {stream: true});
+      buffer += chunk;
+      // SSE blocks are separated by blank lines (\n\n or \r\n\r\n)
+      const parts = buffer.split(/\r?\n\r?\n/);
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        let etype = '', edata = '';
+        for (const line of part.split(/\r?\n/)) {
+          if (line.startsWith('event:')) etype = line.slice(6).trim();
+          else if (line.startsWith('data:')) edata = line.slice(5);
+        }
+        if (etype === 'token' && edata) {
+          if (firstToken) {
+            bubble.className = 'chat-bubble';
+            bubble.textContent = '';
+            firstToken = false;
+          }
+          fullText += edata;
+          bubble.textContent = fullText;
+        } else if (etype === 'done') {
+          if (firstToken && !fullText) {
+            bubble.className = 'chat-bubble';
+            bubble.textContent = '（无输出）';
+          }
+        } else if (etype === 'error') {
+          bubble.className = 'chat-bubble';
+          bubble.style.color = 'var(--danger)';
+          bubble.textContent = '错误: ' + edata;
+        }
+      }
+      document.getElementById('chat-messages').scrollTop = 1e9;
+    }
+    // If stream ended without any token
+    if (firstToken && !fullText) {
+      bubble.className = 'chat-bubble';
+      bubble.textContent = '（无输出）';
+    }
+  } catch(e) {
+    bubble.className = 'chat-bubble';
+    bubble.style.color = 'var(--danger)';
+    bubble.textContent = '错误: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    sendChat.busy = false;
+    document.getElementById('chat-messages').scrollTop = 1e9;
+  }
+}
