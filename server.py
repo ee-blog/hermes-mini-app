@@ -72,7 +72,7 @@ cfg = Config()
 async def lifespan(app: FastAPI):
     yield
 
-app = FastAPI(title="Hermes Mini App v2", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Hermes Mini App v2", version="2.0.1", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Serve static files
@@ -218,13 +218,29 @@ def _try_cpu_temp() -> float | None:
     return None
 
 
+def _nginx_active() -> bool:
+    """Check if nginx is running by detecting listening ports."""
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            name = proc.info["name"] or ""
+            cmdline = proc.info["cmdline"] or []
+            if name == "nginx" or any("nginx" in str(c) for c in cmdline):
+                for conn in psutil.net_connections(kind="inet"):
+                    if conn.status == "LISTEN" and conn.laddr.port in (80, 443):
+                        return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return False
+
+
 async def collect_services() -> dict:
     """Check service statuses concurrently."""
     env = get_user_env()
+    loop = asyncio.get_event_loop()
     tasks = {
         "gateway": _service_active(["systemctl", "--user", "is-active", "hermes-gateway"], env),
         "hermes": _hermes_ok(env),
-        "nginx": _service_active(["systemctl", "is-active", "nginx"]),
+        "nginx": loop.run_in_executor(None, _nginx_active),
     }
     results = {}
     for name, coro in tasks.items():
@@ -246,22 +262,73 @@ async def _hermes_ok(env):
 
 
 async def collect_monthly_traffic() -> dict | None:
-    """Get monthly traffic from vnstat."""
+    """Get monthly traffic from OCI Monitoring API."""
+    return await _get_oci_network_usage()
+
+
+_oci_net_cache = {"data": None, "ts": 0.0}
+_OCI_NET_TTL = 3600  # 1 hour — monthly traffic changes slowly
+
+
+async def _get_oci_network_usage() -> dict | None:
+    """Query OCI Monitoring API for monthly VCN traffic (all VNICs aggregated)."""
+    global _oci_net_cache
+    now = time.time()
+    if not cfg.OCI_ENABLED:
+        return None
+
+    # Return cached if fresh
+    if _oci_net_cache["data"] and now - _oci_net_cache["ts"] < _OCI_NET_TTL:
+        return _oci_net_cache["data"]
+
     try:
-        rc, out, _ = await arun(["vnstat", "--json", "m", "-i", cfg.NET_IFACE], timeout=5)
-        if rc != 0 or not out:
-            return None
-        data = json.loads(out)
-        for iface in data.get("interfaces", []):
-            if iface.get("name") == cfg.NET_IFACE:
-                months = iface.get("traffic", {}).get("month", [])
-                if months:
-                    m = months[-1]
-                    return {"year": m["date"]["year"], "month": m["date"]["month"],
-                            "rx": m["rx"], "tx": m["tx"]}
-    except Exception:
-        pass
-    return None
+        import oci as oci_sdk
+        from datetime import datetime, timezone
+
+        config = oci_sdk.config.from_file(cfg.OCI_CONFIG)
+        tenancy = config["tenancy"]
+        monitoring = oci_sdk.monitoring.MonitoringClient(config)
+
+        utc_now = datetime.now(timezone.utc)
+        month_start = utc_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        rx_total = 0.0
+        tx_total = 0.0
+
+        for metric_name, is_tx in [("VnicToNetworkBytes", True), ("VnicFromNetworkBytes", False)]:
+            query = f"{metric_name}[1d].sum()"
+            resp = monitoring.summarize_metrics_data(
+                compartment_id=tenancy,
+                summarize_metrics_data_details=oci_sdk.monitoring.models.SummarizeMetricsDataDetails(
+                    namespace="oci_vcn",
+                    query=query,
+                    start_time=month_start,
+                    end_time=utc_now,
+                    resolution="1d",
+                ),
+            )
+            for item in resp.data:
+                for dp in item.aggregated_datapoints:
+                    if is_tx:
+                        tx_total += dp.value
+                    else:
+                        rx_total += dp.value
+
+        # Convert to integer bytes (API returns floats)
+        result = {
+            "year": utc_now.year,
+            "month": utc_now.month,
+            "rx": int(rx_total),
+            "tx": int(tx_total),
+            "source": "oci_vcn",
+        }
+        _oci_net_cache = {"data": result, "ts": now}
+        return result
+    except Exception as e:
+        # Stale cache better than nothing
+        if _oci_net_cache["data"]:
+            return _oci_net_cache["data"]
+        return None
 
 
 _SNAPSHOT_PATH = Path(os.path.expanduser("~/.openviking/data/.daily_snapshot.json"))
@@ -390,7 +457,7 @@ async def collect_processes() -> dict:
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0", "uptime": int(time.time() - psutil.boot_time())}
+    return {"status": "ok", "version": "2.0.1", "uptime": int(time.time() - psutil.boot_time())}
 
 
 @app.get("/api/system")
@@ -425,20 +492,20 @@ async def network_stats():
 
 # ── OCI Cost (cached) ──────────────────────────────────────────────
 
-_oci_cache = {"data": None, "ts": 0.0, "prev_total": None}
+_GLOBAL_OCI_CACHE = {"data": None, "ts": 0.0, "prev_total": None}
 _OCI_TTL = 3600  # 1 hour — OCI billing data updates infrequently
 
 @app.get("/api/oci/cost")
 async def oci_cost():
     """Get OCI cost summary for current month (cached 1h)."""
-    global _oci_cache
+    global _GLOBAL_OCI_CACHE
     now = time.time()
     if not cfg.OCI_ENABLED:
         return {"enabled": False, "error": "OCI not configured"}
 
     # Return cached data if still fresh
-    if _oci_cache["data"] and now - _oci_cache["ts"] < _OCI_TTL:
-        return _oci_cache["data"]
+    if _GLOBAL_OCI_CACHE["data"] and now - _GLOBAL_OCI_CACHE["ts"] < _OCI_TTL:
+        return _GLOBAL_OCI_CACHE["data"]
 
     try:
         import oci as oci_sdk
@@ -476,8 +543,8 @@ async def oci_cost():
             })
 
         cur_total = round(total, 2)
-        prev = _oci_cache.get("prev_total")
-        delta = round(cur_total - prev, 2) if prev is not None else None
+        prev = _GLOBAL_OCI_CACHE.get("prev_total")
+        delta = round(cur_total - prev, 2) if prev is not None else 0.0
         data = {
             "enabled": True,
             "period": start.strftime("%Y-%m"),
@@ -486,13 +553,13 @@ async def oci_cost():
             "delta": delta,
             "services": services,
         }
-        _oci_cache = {"data": data, "ts": now, "prev_total": cur_total}
+        _GLOBAL_OCI_CACHE.update({"data": data, "ts": now, "prev_total": cur_total})
         return data
     except Exception as e:
         # Return stale cache if available, otherwise show short error
-        if _oci_cache["data"]:
-            _oci_cache["data"]["cached"] = True
-            return _oci_cache["data"]
+        if _GLOBAL_OCI_CACHE["data"]:
+            _GLOBAL_OCI_CACHE["data"]["cached"] = True
+            return _GLOBAL_OCI_CACHE["data"]
         return {"enabled": True, "error": "OCI 费用获取失败，稍后重试"}
 
 

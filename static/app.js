@@ -47,106 +47,115 @@ updateClock();
 // ── Monitor Render ───────────────────────────────────────────────────
 
 function renderMonitor(data) {
+  if (!data || !data.system) { console.warn('[renderMonitor] no system data'); return; }
   const { system, services, processes, network } = data;
-  if (!system) { console.warn('[renderMonitor] no system data'); return; }
 
-  // CPU
-  const cpu = system.cpu;
-  $('cpu-val').textContent = cpu.percent.toFixed(1) + '%';
-  const cpuBar = $('cpu-bar');
-  cpuBar.style.width = cpu.percent + '%';
-  cpuBar.className = 'bf ' + barColor(cpu.percent);
-  const cores = cpu.per_core || [];
-  if (cores.length > 0) {
-    const mx = Math.max(...cores), mn = Math.min(...cores);
-    $('cpu-detail').textContent = `${cores.length}核 ↑${mx.toFixed(0)}% ↓${mn.toFixed(0)}%`;
-  } else {
-    $('cpu-detail').textContent = '';
-  }
-  if (cpu.temp) $('cpu-detail').textContent += ` 🌡${cpu.temp}°C`;
-
-  // Memory
-  const mem = system.memory;
-  $('mem-val').textContent = mem.percent + '%';
-  const memBar = $('mem-bar');
-  memBar.style.width = mem.percent + '%';
-  memBar.className = 'bf b-blue';
-  $('mem-detail').textContent = fmtBytes(mem.used) + ' / ' + fmtBytes(mem.total);
-
-  // Disk
-  const disk = system.disk;
-  $('disk-val').textContent = disk.percent + '%';
-  const diskBar = $('disk-bar');
-  diskBar.style.width = disk.percent + '%';
-  diskBar.className = 'bf ' + barColor(disk.percent);
-  $('disk-detail').textContent = fmtBytes(disk.used) + ' / ' + fmtBytes(disk.total);
-
-  // Load
-  const ld = cpu.load;
-  $('load-val').textContent = ld['1m'];
-  $('load-detail').textContent = `1m: ${ld['1m']}  5m: ${ld['5m']}`;
-
-  // Uptime
-  $('uptime-val').textContent = fmtUptime(system.uptime);
-
-  // Network
-  const net = network || {};
-  $('net-up').textContent = fmtSpeed(net.speed_up || 0);
-  $('net-down').textContent = fmtSpeed(net.speed_down || 0);
-  if (net.monthly) {
-    const total = net.monthly.rx + net.monthly.tx;
-    const quota = 10995116277760; // 10 TB
-    $('net-usage').textContent = `${fmtBytes(total)} / ${fmtBytes(quota)}`;
-  } else if (net.boot) {
-    const t = net.boot.rx + net.boot.tx;
-    const quota = 10995116277760;
-    $('net-usage').textContent = `${fmtBytes(t)} / ${fmtBytes(quota)}`;
-  }
-
-  // Services
-  if (services) {
-    const names = { hermes: 'Hermes', gateway: 'Gateway', nginx: 'Nginx' };
-    $('services-card').innerHTML = Object.entries(services).map(([k,v]) =>
-      `<div class="svc-row">
-        <span><span class="svc-dot ${v?'svc-on':'svc-off'}"></span>${names[k]||k}</span>
-        <span style="color:${v?'var(--success)':'var(--danger)'};font-size:11px">${v?'● 运行中':'○ 未运行'}</span>
-      </div>`
-    ).join('');
-  }
-
-  // OCI Cost
-  const oci = data.oci;
-  if (oci) {
-    if (oci.enabled === false) {
-      $('oci-card').innerHTML = '<div class="tr"><span>☁️ OCI</span><span style="color:var(--hint);font-size:11px">未配置</span></div>';
-    } else if (oci.error && !oci.services) {
-      $('oci-card').innerHTML = `<div class="tr"><span>☁️ OCI</span><span style="color:var(--danger);font-size:11px">${esc(oci.error)}</span></div>`;
+  // Each section wrapped in try/catch — single card failure won't break others
+  try {
+    const cpu = system.cpu;
+    $('cpu-val').textContent = cpu.percent.toFixed(1) + '%';
+    const cpuBar = $('cpu-bar');
+    cpuBar.style.width = cpu.percent + '%';
+    cpuBar.className = 'bf ' + barColor(cpu.percent);
+    const cores = cpu.per_core || [];
+    if (cores.length > 0) {
+      const mx = Math.max(...cores), mn = Math.min(...cores);
+      $('cpu-detail').textContent = `${cores.length}核 ↑${mx.toFixed(0)}% ↓${mn.toFixed(0)}%`;
     } else {
-      const cur = oci.currency || 'USD';
-      const rows = (oci.services||[]).map(s =>
-        `<div class="tr"><span>${esc(s.service)}</span><span>${s.amount.toFixed(2)} ${cur}</span></div>`
-      ).join('');
-      let totalLine = `<div class="tr" style="font-weight:600;border-top:1px solid rgba(255,255,255,0.1)"><span>💰 总计</span><span style="color:var(--accent)">${oci.total.toFixed(2)} ${cur}</span></div>`;
-      if (oci.delta !== null && oci.delta !== undefined && oci.delta > 0) {
-        totalLine = `<div class="tr" style="font-weight:600;border-top:1px solid rgba(255,255,255,0.1)"><span>💰 总计</span><span style="color:var(--accent)">${oci.total.toFixed(2)} ${cur}</span></div>` +
-          `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📈 较上次</span><span>+${oci.delta.toFixed(2)} ${cur}</span></div>`;
-      }
-      $('oci-card').innerHTML = rows +
-        totalLine +
-        `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📅 ${oci.period}</span><span>🔄 本月至今</span></div>`;
+      $('cpu-detail').textContent = '';
     }
-  }
+    if (cpu.temp) $('cpu-detail').textContent += ` 🌡${cpu.temp}°C`;
+  } catch(e) { console.warn('[renderMonitor] CPU failed:', e); }
 
-  // Processes
-  if (processes) {
-    const truncate = (s, max) => s.length > max ? s.slice(0, max) + '…' : s;
-    $('cpu-top').innerHTML = (processes.top_cpu||[]).map(p =>
-      `<div class="proc"><span class="proc-n">${esc(truncate(p.name, 18))}</span><span class="proc-cpu">${p.cpu}%</span></div>`
-    ).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
-    $('mem-top').innerHTML = (processes.top_mem||[]).map(p =>
-      `<div class="proc"><span class="proc-n">${esc(truncate(p.name, 18))}</span><span class="proc-mem">${p.mem_mb.toFixed(0)} MB</span></div>`
-    ).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
-  }
+  try {
+    const mem = system.memory;
+    $('mem-val').textContent = mem.percent + '%';
+    const memBar = $('mem-bar');
+    memBar.style.width = mem.percent + '%';
+    memBar.className = 'bf b-blue';
+    $('mem-detail').textContent = fmtBytes(mem.used) + ' / ' + fmtBytes(mem.total);
+  } catch(e) { console.warn('[renderMonitor] Memory failed:', e); }
+
+  try {
+    const disk = system.disk;
+    $('disk-val').textContent = disk.percent + '%';
+    const diskBar = $('disk-bar');
+    diskBar.style.width = disk.percent + '%';
+    diskBar.className = 'bf ' + barColor(disk.percent);
+    $('disk-detail').textContent = fmtBytes(disk.used) + ' / ' + fmtBytes(disk.total);
+  } catch(e) { console.warn('[renderMonitor] Disk failed:', e); }
+
+  try {
+    const ld = system.cpu.load;
+    $('load-val').textContent = ld['1m'];
+    $('load-detail').textContent = `1m: ${ld['1m']}  5m: ${ld['5m']}`;
+  } catch(e) { console.warn('[renderMonitor] Load failed:', e); }
+
+  try {
+    $('uptime-val').textContent = fmtUptime(system.uptime);
+  } catch(e) {}
+
+  try {
+    const net = network || {};
+    $('net-up').textContent = fmtSpeed(net.speed_up || 0);
+    $('net-down').textContent = fmtSpeed(net.speed_down || 0);
+    const quota = 10995116277760; // 10 TB — OCI only counts outbound
+    if (net.monthly) {
+      const tx = net.monthly.tx || 0;
+      const pct = (tx / quota * 100).toFixed(1);
+      $('net-usage').textContent = `${fmtBytes(tx)} / ${fmtBytes(quota)}`;
+    } else if (net.boot) {
+      const tx = net.boot.tx || 0;
+      $('net-usage').textContent = `${fmtBytes(tx)} / ${fmtBytes(quota)} (重启后)`;
+    }
+  } catch(e) { console.warn('[renderMonitor] Network failed:', e); }
+
+  try {
+    if (services) {
+      const names = { hermes: 'Hermes', gateway: 'Gateway', nginx: 'Nginx' };
+      $('services-card').innerHTML = Object.entries(services).map(([k,v]) =>
+        `<div class="svc-row">
+          <span><span class="svc-dot ${v?'svc-on':'svc-off'}"></span>${names[k]||k}</span>
+          <span style="color:${v?'var(--success)':'var(--danger)'};font-size:11px">${v?'● 运行中':'○ 未运行'}</span>
+        </div>`
+      ).join('');
+    }
+  } catch(e) { console.warn('[renderMonitor] Services failed:', e); }
+
+  try {
+    const oci = data.oci;
+    if (oci) {
+      if (oci.enabled === false) {
+        $('oci-card').innerHTML = '<div class="tr"><span>☁️ OCI</span><span style="color:var(--hint);font-size:11px">未配置</span></div>';
+      } else if (oci.error && !oci.services) {
+        $('oci-card').innerHTML = `<div class="tr"><span>☁️ OCI</span><span style="color:var(--danger);font-size:11px">${esc(oci.error)}</span></div>`;
+      } else {
+        const cur = oci.currency || 'USD';
+        const rows = (oci.services||[]).map(s =>
+          `<div class="tr"><span>${esc(s.service)}</span><span>${s.amount.toFixed(2)} ${cur}</span></div>`
+        ).join('');
+        let totalLine = `<div class="tr" style="font-weight:600;border-top:1px solid rgba(255,255,255,0.1)"><span>💰 总计</span><span style="color:var(--accent)">${oci.total.toFixed(2)} ${cur}</span></div>`;
+        if (oci.delta !== null && oci.delta !== undefined && oci.delta >= 0) {
+          totalLine += `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📈 较上次</span><span>+${oci.delta.toFixed(2)} ${cur}</span></div>`;
+        }
+        $('oci-card').innerHTML = rows +
+          totalLine +
+          `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📅 ${oci.period}</span><span>🔄 本月至今</span></div>`;
+      }
+    }
+  } catch(e) { console.warn('[renderMonitor] OCI failed:', e); }
+
+  try {
+    if (processes) {
+      const truncate = (s, max) => s.length > max ? s.slice(0, max) + '…' : s;
+      $('cpu-top').innerHTML = (processes.top_cpu||[]).map(p =>
+        `<div class="proc"><span class="proc-n">${esc(truncate(p.name, 18))}</span><span class="proc-cpu">${p.cpu}%</span></div>`
+      ).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
+      $('mem-top').innerHTML = (processes.top_mem||[]).map(p =>
+        `<div class="proc"><span class="proc-n">${esc(truncate(p.name, 18))}</span><span class="proc-mem">${p.mem_mb.toFixed(0)} MB</span></div>`
+      ).join('') || '<div style="color:var(--hint);font-size:11px">无数据</div>';
+    }
+  } catch(e) { console.warn('[renderMonitor] Processes failed:', e); }
 }
 
 // ── Hermes Page Data (loaded on tab switch, refreshed periodically) ──
@@ -359,10 +368,14 @@ async function checkOpsAccess() {
 }
 
 async function loadCronJobs() {
+  const list = $('cron-jobs-list');
+  list.innerHTML = '<div style="font-size:12px;color:var(--hint);padding:8px 12px">⏳ 加载中...</div>';
   try {
-    const r = await fetch(`${API}/cron/jobs`);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    const r = await fetch(`${API}/cron/jobs`, { signal: ctrl.signal });
+    clearTimeout(timer);
     const d = await r.json();
-    const list = $('cron-jobs-list');
     if (!d.jobs || d.jobs.length === 0) {
       list.innerHTML = '<div style="font-size:12px;color:var(--hint);padding:8px 12px">暂无定时任务</div>';
       return;
@@ -382,8 +395,9 @@ async function loadCronJobs() {
         <span class="cron-job-status ${cls}">${label}</span>
       </div>`;
     }).join('');
-  } catch(_) {
-    $('cron-jobs-list').innerHTML = '<div style="font-size:12px;color:var(--danger);padding:8px 12px">加载失败</div>';
+  } catch(e) {
+    const msg = e.name === 'AbortError' ? '加载超时，请检查 Hermes 服务' : '加载失败';
+    list.innerHTML = `<div style="font-size:12px;color:var(--danger);padding:8px 12px">${msg}</div>`;
   }
 }
 
@@ -423,6 +437,9 @@ function logOps(msg, type = 'info') {
 
 async function emergencyRestart() {
   if (!confirm('⚠️ 确定执行紧急重启？\n\n将杀掉所有 Hermes 进程并重启 Gateway。')) return;
+  const btn = document.getElementById('btn-emergency');
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '执行中...'; }
   logOps('🚨 执行紧急重启...');
   try {
     const body = opsPwd ? { ops_password: opsPwd } : {};
@@ -434,9 +451,13 @@ async function emergencyRestart() {
     const d = await r.json();
     (d.results||[]).forEach(res => logOps(res));
   } catch(e) { logOps('❌ ' + e.message, 'error'); }
+  finally { if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = '🚨 强制重启'; }, 3000); } }
 }
 
 async function restartSvc(service) {
+  const btn = document.getElementById('btn-restart-' + service);
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '重启中...'; }
   logOps(`🔄 重启 ${service}...`);
   try {
     const body = { service };
@@ -449,23 +470,28 @@ async function restartSvc(service) {
     const d = await r.json();
     logOps(d.exit_code === 0 ? `✅ ${service} 重启成功` : `❌ ${service} 重启失败`, d.exit_code === 0 ? 'success' : 'error');
   } catch(e) { logOps('❌ ' + e.message, 'error'); }
+  finally { if (btn) { setTimeout(() => { btn.disabled = false; btn.textContent = `重启 ${service}`; }, 3000); } }
 }
 
 // ── Init ─────────────────────────────────────────────────────────────
 
-// SSE real-time metrics stream (Monitor tab)
+// SSE real-time metrics stream with exponential backoff
+let _sseRetryDelay = 3000;
+const _sseMaxDelay = 30000;
 function connectMonitorStream() {
   const es = new EventSource('/api/stream?interval=5');
   es.addEventListener('metrics', (e) => {
+    _sseRetryDelay = 3000; // reset on success
     try {
       const data = JSON.parse(e.data);
       renderMonitor(data);
     } catch(_) {}
   });
   es.addEventListener('error', () => {
-    // reconnect after 3s
-    setTimeout(connectMonitorStream, 3000);
     es.close();
+    const jitter = Math.random() * 1000;
+    setTimeout(connectMonitorStream, _sseRetryDelay + jitter);
+    _sseRetryDelay = Math.min(_sseRetryDelay * 1.5, _sseMaxDelay);
   });
 }
 connectMonitorStream();
@@ -481,7 +507,8 @@ function appendChatMsg(role, text, meta) {
   const box = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = 'chat-msg ' + role;
-  div.innerHTML = `<div class="chat-bubble">${escapeHtml(text)}</div>${meta?`<div class="chat-meta">${meta}</div>`:''}`;
+  const content = role === 'bot' ? marked.parse(text) : escapeHtml(text);
+  div.innerHTML = `<div class="chat-bubble">${content}</div>${meta?`<div class="chat-meta">${meta}</div>`:''}`;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }

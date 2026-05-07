@@ -1,4 +1,4 @@
-#!/home/ubuntu/.hermes/oci-venv/bin/python3
+#!/home/ubuntu/.hermes/hermes-agent/venv/bin/python3
 """Test OCI Cost API"""
 import oci
 from datetime import datetime, timezone
