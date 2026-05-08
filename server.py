@@ -1087,7 +1087,7 @@ async def stream_metrics(request: Request):
 
 # ── Chat: llama-server (MiniCPM-V-4_5) ───────────────────────────────
 
-LLAMA_CHAT_URL = "http://127.0.0.1:8080/v1/chat/completions"
+LLAMA_CHAT_URL = "http://127.0.0.1:8081/v1/chat/completions"
 
 
 @app.post("/api/chat")
@@ -1105,9 +1105,13 @@ async def chat(request: Request):
                 has_content = False
 
                 async with client.stream("POST", LLAMA_CHAT_URL, json={
-                    "model": "default",
-                    "messages": [{"role": "user", "content": prompt}],
+                    "model": "Qwen3.6-35B-A3B-Q4_K_M.gguf",
+                    "messages": [
+                        {"role": "system", "content": "你是一个简洁高效、严肃认真、逻辑严谨的AI助手。回答直接了当，不废话。"},
+                        {"role": "user", "content": prompt}
+                    ],
                     "max_tokens": 512,
+                    "thinking": {"type": "none"},
                     "stream": True,
                 }) as resp:
                     if resp.status_code != 200:
