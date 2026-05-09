@@ -256,12 +256,7 @@
   <!-- Panel -->
     <div id="ops-panel" style="display:none">
 
-    <div class="card-title" style="margin-bottom:12px">⏰ 定时任务</div>
-    <div class="card cron-jobs-card" id="cron-jobs-card">
-      <div id="cron-jobs-list">加载中...</div>
-    </div>
-
-    <div class="card-title" style="margin:18px 0 12px">💬 本地 AI 聊天</div>
+    <div class="card-title" style="margin-bottom:12px">💬 本地 AI 聊天</div>
     <div class="card" id="chat-card">
       <div class="chat-messages" id="chat-messages"></div>
       <div class="chat-input-row">
@@ -269,6 +264,11 @@
                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}">
         <button class="ops-btn" onclick="sendChat()" id="chat-send-btn">发送</button>
       </div>
+    </div>
+
+    <div class="card-title" style="margin:18px 0 12px">⏰ 定时任务</div>
+    <div class="card cron-jobs-card" id="cron-jobs-card">
+      <div id="cron-jobs-list">加载中...</div>
     </div>
 
     <div class="card-title" style="margin:18px 0 12px">🚨 紧急操作</div>
