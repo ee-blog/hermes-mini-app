@@ -289,6 +289,7 @@ body {
 .services-card { min-height: 0; }
 .oci-card { min-height: 120px; }
 .traffic-card { min-height: 0; }
+.traffic-card .tr { justify-content: flex-start; gap: 8px; }
 .platform-card { min-height: 90px; }
 .engine-grid { min-height: 160px; }
 

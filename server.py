@@ -241,6 +241,7 @@ async def collect_services() -> dict:
         "gateway": _service_active(["systemctl", "--user", "is-active", "hermes-gateway"], env),
         "hermes": _hermes_ok(env),
         "nginx": loop.run_in_executor(None, _nginx_active),
+        "llamacpp": _service_active(["systemctl", "is-active", "llama-server"], env),
     }
     results = {}
     for name, coro in tasks.items():

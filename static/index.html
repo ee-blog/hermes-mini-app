@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Hermes Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=5">
+<link rel="stylesheet" href="/static/style.css?v=11">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -82,8 +82,12 @@
     <div class="tr">
       <span>↓ 下载</span> <span class="tv down" id="net-down">--</span>
     </div>
-    <div class="tr">
-      <span>📊 用量</span> <span id="net-usage">--</span>
+    <div class="tr" style="align-items:center">
+      <span style="font-weight:600">📊 用量</span>
+      <span style="margin-left:auto;font-size:11px;line-height:1.6">
+        <div><span style="color:var(--hint)">出站</span> <span id="net-tx" style="display:inline-block;min-width:70px;text-align:right">--</span></div>
+        <div><span style="color:var(--hint)">入站</span> <span id="net-rx" style="display:inline-block;min-width:70px;text-align:right">--</span></div>
+      </span>
     </div>
   </div>
   <div class="card services-card" id="services-card">
@@ -295,6 +299,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=19"></script>
 </body>
 </html>

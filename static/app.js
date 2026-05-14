@@ -99,20 +99,18 @@ function renderMonitor(data) {
     const net = network || {};
     $('net-up').textContent = fmtSpeed(net.speed_up || 0);
     $('net-down').textContent = fmtSpeed(net.speed_down || 0);
-    const quota = 10995116277760; // 10 TB — OCI only counts outbound
     if (net.monthly) {
-      const tx = net.monthly.tx || 0;
-      const pct = (tx / quota * 100).toFixed(1);
-      $('net-usage').textContent = `${fmtBytes(tx)} / ${fmtBytes(quota)}`;
+      $('net-tx').textContent = fmtBytes(net.monthly.tx || 0);
+      $('net-rx').textContent = fmtBytes(net.monthly.rx || 0);
     } else if (net.boot) {
-      const tx = net.boot.tx || 0;
-      $('net-usage').textContent = `${fmtBytes(tx)} / ${fmtBytes(quota)} (重启后)`;
+      $('net-tx').textContent = fmtBytes(net.boot.tx || 0);
+      $('net-rx').textContent = fmtBytes(net.boot.rx || 0);
     }
   } catch(e) { console.warn('[renderMonitor] Network failed:', e); }
 
   try {
     if (services) {
-      const names = { hermes: 'Hermes', gateway: 'Gateway', nginx: 'Nginx' };
+      const names = { hermes: 'Hermes', gateway: 'Gateway', nginx: 'Nginx', llamacpp: 'llama.cpp' };
       $('services-card').innerHTML = Object.entries(services).map(([k,v]) =>
         `<div class="svc-row">
           <span><span class="svc-dot ${v?'svc-on':'svc-off'}"></span>${names[k]||k}</span>
