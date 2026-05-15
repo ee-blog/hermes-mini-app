@@ -332,102 +332,104 @@ async def _get_oci_network_usage() -> dict | None:
         return None
 
 
-_SNAPSHOT_PATH = Path(os.path.expanduser("~/.openviking/data/.daily_snapshot.json"))
+_TDAI_SNAPSHOT_PATH = Path(os.path.expanduser("~/.memory-tencentdb/.daily_snapshot.json"))
 
 
-def _load_snapshot() -> dict:
-    """Load the daily snapshot; returns {date, writes, queries} or None."""
+def _load_tdai_snapshot() -> dict:
+    """Load the daily snapshot for TencentDB; returns {date, writes, reads} or None."""
     try:
-        if _SNAPSHOT_PATH.exists():
-            return json.loads(_SNAPSHOT_PATH.read_text())
+        if _TDAI_SNAPSHOT_PATH.exists():
+            return json.loads(_TDAI_SNAPSHOT_PATH.read_text())
     except Exception:
         pass
     return None
 
 
-def _save_snapshot(data: dict):
-    """Persist the daily snapshot."""
+def _save_tdai_snapshot(data: dict):
+    """Persist the daily snapshot for TencentDB."""
     try:
-        _SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _SNAPSHOT_PATH.write_text(json.dumps(data))
+        _TDAI_SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _TDAI_SNAPSHOT_PATH.write_text(json.dumps(data))
     except Exception:
         pass
 
 
-async def collect_memory_engine() -> dict:
-    """Get memory engine stats from OpenViking, daily-reset via snapshot.
+async def collect_tdai_memory_engine() -> dict:
+    """Get memory engine stats from TencentDB Gateway + SQLite.
 
-    total        — vector count (indexed memory chunks)
-    today_writes — viking_remember tool calls since midnight (from plugin counter)
-    today_reads  — viking_search + viking_read since midnight (from retrieval observer)
+    total        — L1 memory records count
+    today_writes — L1 records created today
+    today_reads  — L1 records accessed today (approx from FTS queries)
     """
-    ov_url = "http://127.0.0.1:1933"
+    gateway_url = "http://127.0.0.1:8420"
+    db_path = Path.home() / ".memory-tencentdb/memory-tdai/vectors.db"
     today = datetime.now().strftime("%Y-%m-%d")
     result = {"today_writes": 0, "today_reads": 0, "total": 0}
 
-    # 1. Total — vector count from vikingdb observer
+    # 1. Health check
     try:
         async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{ov_url}/api/v1/observer/vikingdb")
+            r = await c.get(f"{gateway_url}/health")
             if r.status_code == 200:
-                table = r.json().get("result", {}).get("status", "")
-                for line in table.split("\n"):
-                    cells = [c.strip() for c in line.split("|") if c.strip()]
-                    if len(cells) >= 3 and cells[0] == "TOTAL":
-                        result["total"] = int(cells[2])
+                data = r.json()
+                if not data.get("stores", {}).get("vectorStore"):
+                    return result
     except Exception:
-        pass
+        return result
 
-    # 2. Raw writes — from OpenViking plugin tool counter
-    raw_writes = 0
+    # 2. SQLite stats
+    if not db_path.exists():
+        return result
+
     try:
-        stats_path = Path(os.path.expanduser("~/.openviking/data/.tool_stats.json"))
-        if stats_path.exists():
-            stats = json.loads(stats_path.read_text())
-            raw_writes = stats.get("writes", 0)
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        cur = conn.cursor()
+
+        # Total L1 records
+        cur.execute("SELECT COUNT(*) FROM l1_records")
+        result["total"] = cur.fetchone()[0]
+
+        # Today's writes (created_time is ISO timestamp)
+        cur.execute(
+            "SELECT COUNT(*) FROM l1_records WHERE DATE(created_time) = ?",
+            (today,)
+        )
+        raw_writes = cur.fetchone()[0]
+
+        # Today's reads (updated_time)
+        cur.execute(
+            "SELECT COUNT(*) FROM l1_records WHERE DATE(updated_time) = ? AND DATE(updated_time) != DATE(created_time)",
+            (today,)
+        )
+        raw_reads = cur.fetchone()[0]
+
+        conn.close()
+
+        # 3. Daily snapshot: compute today = raw - snapshot
+        snap = _load_tdai_snapshot()
+        if snap is None or snap.get("date") != today:
+            snap = {"date": today, "writes": raw_writes, "reads": raw_reads}
+            _save_tdai_snapshot(snap)
+            result["today_writes"] = raw_writes
+            result["today_reads"] = raw_reads
         else:
-            # seed zeros so the file always exists
-            stats_path.parent.mkdir(parents=True, exist_ok=True)
-            stats_path.write_text(json.dumps({"writes": 0, "queries": 0, "resources": 0}))
+            if raw_writes >= snap["writes"]:
+                result["today_writes"] = raw_writes - snap["writes"]
+            else:
+                result["today_writes"] = raw_writes
+                snap["writes"] = raw_writes
+                _save_tdai_snapshot(snap)
+
+            if raw_reads >= snap["reads"]:
+                result["today_reads"] = raw_reads - snap["reads"]
+            else:
+                result["today_reads"] = raw_reads
+                snap["reads"] = raw_reads
+                _save_tdai_snapshot(snap)
+
     except Exception:
         pass
-
-    # 3. Raw queries — from observer/retrieval (Total Queries)
-    raw_queries = 0
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{ov_url}/api/v1/observer/retrieval")
-            if r.status_code == 200:
-                table = r.json().get("result", {}).get("status", "")
-                for line in table.split("\n"):
-                    cells = [cell.strip() for cell in line.split("|") if cell.strip()]
-                    if len(cells) >= 2 and cells[0] == "Total Queries":
-                        raw_queries = int(cells[1])
-    except Exception:
-        pass
-
-    # 4. Daily snapshot: compute today = raw - snapshot
-    snap = _load_snapshot()
-    if snap is None or snap.get("date") != today:
-        # New day (or first run) → reset snapshot to current raw values
-        snap = {"date": today, "writes": raw_writes, "queries": raw_queries}
-        _save_snapshot(snap)
-        result["today_writes"] = 0
-        result["today_reads"] = 0
-    else:
-        # Same day — delta from snapshot
-        # Handle counter reset (process restart): if raw < snap, treat as fresh start
-        if raw_writes >= snap["writes"]:
-            result["today_writes"] = raw_writes - snap["writes"]
-        else:
-            snap["writes"] = raw_writes
-            _save_snapshot(snap)
-
-        if raw_queries >= snap["queries"]:
-            result["today_reads"] = raw_queries - snap["queries"]
-        else:
-            snap["queries"] = raw_queries
-            _save_snapshot(snap)
 
     return result
 
@@ -611,8 +613,8 @@ async def hermes_platforms():
 
 @app.get("/api/hermes/memory")
 async def hermes_memory():
-    """Get memory stats from OpenViking API."""
-    data = await collect_memory_engine()
+    """Get memory stats from TencentDB Gateway."""
+    data = await collect_tdai_memory_engine()
     return {"count": data["total"], "today_writes": data["today_writes"], "today_queries": data["today_reads"]}
 
 
@@ -636,59 +638,61 @@ async def hermes_engines():
     except Exception:
         pass
 
-    # 2. Memory Engine (OpenViking)
+    # 2. Memory Engine (TencentDB)
     try:
-        rc, out, _ = await arun([cfg.HERMES_BIN, "memory"], env=get_user_env(), timeout=10)
-        for line in out.splitlines():
-            if "Status:" in line: result["memory"]["status"] = line.split("Status:")[1].strip()
-            if "Provider:" in line: result["memory"]["provider"] = line.split("Provider:")[1].strip()
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://127.0.0.1:8420/health")
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("stores", {}).get("vectorStore"):
+                    result["memory"]["status"] = "active"
+                    result["memory"]["provider"] = "TencentDB"
+                else:
+                    result["memory"]["status"] = "degraded"
+            else:
+                result["memory"]["status"] = "offline"
+    except Exception:
+        result["memory"]["status"] = "offline"
+
+    # 3. Vector Engine & 4. Local Retrieval — from TencentDB Gateway
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://127.0.0.1:8420/health")
+            if r.status_code == 200:
+                data = r.json()
+                # Vector engine status (embedding: bge-large-zh-v1.5 @ :8082)
+                result["vector"] = {
+                    "provider": "TencentDB",
+                    "model": "bge-large-zh-v1.5",
+                    "dimension": "1024",
+                    "active": data.get("stores", {}).get("embeddingService", False),
+                }
+                # Retrieval status
+                result["retrieval"] = {
+                    "provider": "TencentDB",
+                    "model": "hunyuan-turbos",
+                    "active": data.get("stores", {}).get("vectorStore", False),
+                }
     except Exception:
         pass
-
-    # 3. Vector Engine & 4. Local Retrieval - from OpenViking config
-    ov_conf = Path("/home/ubuntu/.openviking/ov.conf")
-    if ov_conf.exists():
-        try:
-            ov_data = json.loads(ov_conf.read_text())
-            emb = ov_data.get("embedding", {}).get("dense", {})
-            vlm = ov_data.get("vlm", {})
-
-            # Vector engine — uses OpenViking local embedding (not Ollama)
-            result["vector"] = {
-                "provider": f"本地 ({emb.get('provider','?')})",
-                "model": emb.get("model", "未知"),
-                "dimension": emb.get("dimension", "未知"),
-                "active": True,
-            }
-
-            # Local retrieval engine (VLM) — via LiteLLM
-            result["retrieval"] = {
-                "provider": f"LiteLLM ({vlm.get('provider','?')})",
-                "model": vlm.get("model", "未知"),
-                "active": True,
-            }
-        except Exception:
-            pass
 
     return result
 
 
-_vlm_last_query_snapshot = {"queries": 0, "last_used": None}
-
 
 @app.get("/api/hermes/local-models")
 async def local_models_status():
-    """Real-time status for two local models: embedding & VLM."""
+    """Real-time status for memory backend models (TencentDB uses remote APIs)."""
     result = {
         "embedding": {
-            "model": "未知", "provider": "local",
+            "model": "remote", "provider": "tencent-coding",
             "status": "offline", "calls": 0, "tokens": 0,
             "last_used": None, "queue_pending": 0, "queue_active": 0,
             "avg_latency_ms": 0,
         },
         "vlm": {
-            "model": "未知", "provider": "ollama",
-            "status": "offline", "loaded": False, "processor": "CPU",
+            "model": "hunyuan-turbos", "provider": "tencent-coding",
+            "status": "offline", "loaded": False, "processor": "API",
             "param_size": "", "quant": "",
             "queries": 0, "avg_latency_ms": 0,
             "zero_result_rate": 0, "last_used": None,
@@ -696,133 +700,18 @@ async def local_models_status():
         },
     }
 
-    ov_url = "http://127.0.0.1:1933"
-
-    # 1. Embedding model from OpenViking observer/models
+    # Check TencentDB Gateway health
     try:
         async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{ov_url}/api/v1/observer/models")
+            r = await c.get("http://127.0.0.1:8420/health")
             if r.status_code == 200:
-                data = r.json().get("result", {})
-                raw = data.get("status", "")
-                # Parse table: bge-small-zh-v1.5-f16 | local | 53 | 6471 | 0 | 6471 | timestamp
-                import re
-                lines = raw.strip().splitlines()
-                for line in lines:
-                    if line.startswith("|") and "Model" not in line and "---+---" not in line and line.count("|") >= 6:
-                        parts = [p.strip() for p in line.split("|") if p.strip()]
-                        if len(parts) >= 6:
-                            result["embedding"]["model"] = parts[0]
-                            result["embedding"]["provider"] = parts[1]
-                            try:
-                                result["embedding"]["calls"] = int(parts[2])
-                                result["embedding"]["tokens"] = int(parts[5])
-                            except ValueError:
-                                pass
-                            result["embedding"]["status"] = "active"
-                            if len(parts) >= 7 and parts[6]:
-                                result["embedding"]["last_used"] = parts[6]
+                data = r.json()
+                if data.get("stores", {}).get("vectorStore"):
+                    result["embedding"]["status"] = "active"
+                    result["vlm"]["status"] = "online"
+                    result["vlm"]["loaded"] = True
     except Exception:
         pass
-
-    # 2. Queue status for embedding
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{ov_url}/api/v1/observer/queue")
-            if r.status_code == 200:
-                data = r.json().get("result", {})
-                raw = data.get("status", "")
-                for line in raw.splitlines():
-                    if "Embedding" in line:
-                        parts = [p.strip() for p in line.split("|") if p.strip()]
-                        if len(parts) >= 4:
-                            result["embedding"]["queue_pending"] = int(parts[1])
-                            result["embedding"]["queue_active"] = int(parts[2])
-                        break
-                # Update status based on queue
-                emb = result["embedding"]
-                if emb["status"] == "active":
-                    if emb["queue_active"] > 0:
-                        emb["status"] = "processing"
-                    elif emb["queue_pending"] > 0:
-                        emb["status"] = "queued"
-                    else:
-                        emb["status"] = "idle"
-    except Exception:
-        pass
-
-    # 3. VLM model info — read from ov.conf (local or remote provider)
-    # Ollama is no longer used; VLM now uses remote APIs via LiteLLM
-    try:
-        ov_conf = Path("/home/ubuntu/.openviking/ov.conf")
-        if ov_conf.exists():
-            ov_data = json.loads(ov_conf.read_text())
-            vlm = ov_data.get("vlm", {})
-            if vlm.get("model"):
-                result["vlm"]["model"] = vlm["model"]
-            if vlm.get("provider"):
-                result["vlm"]["provider"] = vlm["provider"]
-            # Remote API models and local Ollama models are "online" when provider is set
-            if vlm.get("provider") in ("litellm", "openai", "deepseek", "ollama"):
-                result["vlm"]["status"] = "online"
-                result["vlm"]["loaded"] = True
-    except Exception:
-        pass
-
-    # 4. Retrieval stats from OpenViking observer/retrieval
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{ov_url}/api/v1/observer/retrieval")
-            if r.status_code == 200:
-                data = r.json().get("result", {})
-                raw = data.get("status", "")
-                import re
-                # Parse table metrics
-                m_q = re.search(r"Total Queries\s+\|\s*(\d+)", raw)
-                if m_q: result["vlm"]["queries"] = int(m_q.group(1))
-                m_l = re.search(r"Avg Latency \(ms\)\s+\|\s*([\d.]+)", raw)
-                if m_l: result["vlm"]["avg_latency_ms"] = round(float(m_l.group(1)), 1)
-                m_z = re.search(r"Zero-Result Rate\s+\|\s*([\d.]+)%", raw)
-                if m_z: result["vlm"]["zero_result_rate"] = round(float(m_z.group(1)), 1)
-    except Exception:
-        pass
-
-    # Track last query time — detect queries increase
-    global _vlm_last_query_snapshot
-    cur_q = result["vlm"]["queries"]
-    if cur_q > _vlm_last_query_snapshot["queries"]:
-        _vlm_last_query_snapshot["queries"] = cur_q
-        _vlm_last_query_snapshot["last_used"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    result["vlm"]["last_used"] = _vlm_last_query_snapshot["last_used"]
-
-    # 5. Queue for semantic/VLM tasks
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{ov_url}/api/v1/observer/queue")
-            if r.status_code == 200:
-                data = r.json().get("result", {})
-                raw = data.get("status", "")
-                for line in raw.splitlines():
-                    if "Semantic" in line and "Nodes" not in line:
-                        parts = [p.strip() for p in line.split("|") if p.strip()]
-                        if len(parts) >= 4:
-                            result["vlm"]["queue_pending"] = int(parts[1])
-                            result["vlm"]["queue_active"] = int(parts[2])
-                        break
-    except Exception:
-        pass
-
-    # Fallback status from ov.conf
-    if result["embedding"]["model"] == "未知":
-        try:
-            ov_conf = Path("/home/ubuntu/.openviking/ov.conf")
-            if ov_conf.exists():
-                ov_data = json.loads(ov_conf.read_text())
-                emb = ov_data.get("embedding", {}).get("dense", {})
-                result["embedding"]["model"] = emb.get("model", "未知")
-                result["embedding"]["provider"] = emb.get("provider", "local")
-        except Exception:
-            pass
 
     return result
 
@@ -864,8 +753,8 @@ async def hermes_overview():
         platforms["微信"] = "WEIXIN_TOKEN=" in env_path.read_text()
     data["platforms"] = {k: v for k, v in platforms.items() if k in ("Telegram", "QQ", "微信")}
 
-    # 3. Memory (OpenViking)
-    mem = await collect_memory_engine()
+    # 3. Memory (TencentDB)
+    mem = await collect_tdai_memory_engine()
     data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"]}
 
     # 4. Engines (LLM + Memory Engine only — vector & retrieval moved to local_models)
@@ -1026,7 +915,7 @@ async def ops_restart_service(request: Request):
 async def blog_widget():
     """Return data in the format expected by the blog embed widget."""
     sys_data = collect_system()
-    mem_eng = await collect_memory_engine()
+    mem_eng = await collect_tdai_memory_engine()
     monthly = await collect_monthly_traffic()
     io = _sample_io()
 
