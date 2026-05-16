@@ -167,9 +167,12 @@ async function loadHermesData() {
 
     // Model
     if (d.model) {
-      $('hermes-model').textContent = d.model.model || '--';
-      $('hermes-provider').textContent = 'Provider: ' + (d.model.provider || '--');
-      $('header-model').textContent = '🤖 ' + (d.model.model && d.model.model.length > 20 ? d.model.model.slice(0,20)+'…' : d.model.model || '--');
+      const modelEl = $('hermes-model');
+      if (modelEl) modelEl.textContent = d.model.model || '--';
+      const providerEl = $('hermes-provider');
+      if (providerEl) providerEl.textContent = 'Provider: ' + (d.model.provider || '--');
+      const headerModelEl = $('header-model');
+      if (headerModelEl) headerModelEl.textContent = '🤖 ' + (d.model.model && d.model.model.length > 20 ? d.model.model.slice(0,20)+'…' : d.model.model || '--');
     }
 
     // Platforms — skip if unchanged to prevent SVG flicker
@@ -198,24 +201,52 @@ async function loadHermesData() {
       $('mem-queries').textContent = d.memory.today_queries ?? 0;
     }
 
-    // Engines (LLM + Memory)
+    // Engines (all 4 unified)
     if (d.engines) {
       const ed = d.engines;
+
+      // LLM
+      const llmStatus = ed.llm?.status === 'active' ? 'active' : 'offline';
+      const llmBadge = $('llm-badge');
+      if (llmBadge) {
+        llmBadge.className = 'lm-badge ' + llmStatus;
+        llmBadge.textContent = llmStatus === 'active' ? '● 在线' : '○ 离线';
+      }
       $('eng-llm').textContent = ed.llm?.name || '--';
-      $('eng-llm-sub').textContent = ed.llm?.provider || '';
-      const memStatus = ed.memory?.status === 'healthy' ? '🟢 正常' : ed.memory?.status === 'degraded' ? '🟡 降级' : ed.memory?.status || '--';
-      $('eng-memory').textContent = ed.memory?.provider === 'openviking' ? 'OpenViking' : (ed.memory?.provider || '--');
-      $('eng-memory-sub').textContent = memStatus;
+      $('eng-llm-provider').textContent = ed.llm?.provider || '--';
+      const llmLatency = $('eng-llm-latency');
+      if (llmLatency) llmLatency.textContent = llmStatus === 'active' ? '正常' : '--';
+      const llmType = $('eng-llm-type');
+      if (llmType) llmType.textContent = llmStatus === 'active' ? '云端' : '--';
+
+      // Memory
+      const memS = ed.memory?.status;
+      const memBadge = $('mem-badge');
+      if (memBadge) {
+        const memCls = memS === 'healthy' ? 'active' : memS === 'degraded' ? 'offline' : 'offline';
+        memBadge.className = 'lm-badge ' + memCls;
+        memBadge.textContent = memS === 'healthy' ? '● 正常' : memS === 'degraded' ? '● 降级' : '○ 离线';
+      }
+      $('eng-memory').textContent = ed.memory?.provider || '--';
+      const memStatusEl = $('eng-memory-status');
+      if (memStatusEl) {
+        memStatusEl.textContent = memS === 'healthy' ? '正常' : memS === 'degraded' ? '降级' : memS || '--';
+        memStatusEl.style.color = memS === 'healthy' ? 'var(--success)' : memS === 'degraded' ? 'var(--warn)' : '';
+      }
+      const memCountEl = $('eng-memory-count');
+      if (memCountEl) memCountEl.textContent = d.memory?.count ? d.memory.count + ' 条' : '--';
+      const memUptime = $('eng-memory-uptime');
+      if (memUptime) memUptime.textContent = formatUptime(ed.memory?.uptime_sec);
     }
 
     // Local models (redesigned vector + retrieval cards)
     if (d.local_models) {
       renderLocalModels(d.local_models);
     }
-  } catch(_) {}
+  } catch(e) { console.error('[loadHermesData]', e); }
 }
 
-// ── Local Models Renderer (pure render, no fetch) ─────────────────
+// ── Tab switch hook for Hermes page auto-refresh ─────────────────
 const origSwitch = switchTab;
 switchTab = function(tab) {
   origSwitch(tab);
@@ -253,95 +284,51 @@ function fmtEstTime(queuePending, avgLatencyMs) {
 async function renderLocalModels(lmData) {
   try {
     const d = lmData;
+    if (!d) return;
 
-    // ── Embedding Model Card ──
+    // ── Embedding Engine Card ──
     const emb = d.embedding || {};
-    $('emb-model').textContent = emb.model || '--';
 
     // Status badge
     const embBadge = $('emb-badge');
-    const status = emb.status || 'offline';
-    embBadge.className = 'lm-badge ' + status;
-    const statusMap = {
-      idle: '● 空闲',
-      processing: '⚡ 处理中',
-      queued: '⏳ 队列中',
-      offline: '○ 离线',
-      active: '● 在线',
-    };
-    embBadge.textContent = statusMap[status] || '● ' + status;
+    if (!embBadge) return;
+    const embStatus = emb.status || 'offline';
+    embBadge.className = 'lm-badge ' + embStatus;
+    embBadge.textContent = embStatus === 'active' ? '● 在线' : '○ 离线';
 
-    $('emb-calls').textContent = emb.calls || 0;
-    $('emb-tokens').textContent = (emb.tokens || 0) + ' tokens';
-    $('emb-last').textContent = fmtTimeAgo(emb.last_used);
+    // Card data
+    $('emb-provider').textContent = emb.provider || '--';
+    $('emb-model').textContent = emb.model || '--';
+    $('emb-dim').textContent = emb.dimension || '--';
+    $('emb-uptime').textContent = formatUptime(emb.uptime_sec);
 
-    // Queue showing (always visible)
-    const qPend = emb.queue_pending || 0;
-    const qAct = emb.queue_active || 0;
-    if (qPend > 0 || qAct > 0) {
-      $('emb-queue').textContent = `${qPend} 待处理 · ${qAct} 执行中`;
-    } else {
-      $('emb-queue').textContent = `0 待处理`;
-    }
-
-    // Estimated time
-    const avgLat = emb.avg_latency_ms || 0;
-    const est = fmtEstTime(qPend, avgLat);
-    if (est) {
-      $('emb-conf-row').style.display = 'flex';
-      $('emb-est').textContent = est;
-    } else {
-      $('emb-conf-row').style.display = 'none';
-    }
-
-    // ── VLM Model Card ──
+    // ── Retrieval Engine Card ──
     const vlm = d.vlm || {};
-    $('vlm-model').textContent = vlm.model || '--';
 
-    const vlmBadge = $('vlm-badge');
-    let vlmStatus = vlm.status || 'offline';
-    // Override loaded status based on queue activity
-    const vqPend = vlm.queue_pending || 0;
-    const vqAct = vlm.queue_active || 0;
-    if (vlmStatus === 'loaded' || vlmStatus === 'online') {
-      if (vqAct > 0) { vlmStatus = 'working'; }
-      else if (vqPend > 0) { vlmStatus = 'queued'; }
-      else { vlmStatus = 'idle'; }
-    }
-    vlmBadge.className = 'lm-badge ' + vlmStatus;
-    const vlmStatusMap = {
-      idle: '● 空闲',
-      working: '⚡ 工作中',
-      queued: '⏳ 队列中',
-      unloaded: '● 未加载',
-      offline: '○ 离线',
-      online: '● 在线',
-      active: '● 在线',
-    };
-    vlmBadge.textContent = vlmStatusMap[vlmStatus] || '● ' + vlmStatus;
+    // Status badge
+    const retBadge = $('ret-badge');
+    if (!retBadge) return;
+    const retStatus = vlm.status || 'offline';
+    retBadge.className = 'lm-badge ' + (retStatus === 'online' ? 'active' : retStatus);
+    retBadge.textContent = retStatus === 'online' || retStatus === 'active' ? '● 在线' : '○ 离线';
 
-    $('vlm-queries').textContent = vlm.queries || 0;
-    $('vlm-latency').textContent = vlm.avg_latency_ms ? vlm.avg_latency_ms + 'ms' : '--';
+    // Card data
+    $('ret-provider').textContent = vlm.provider || '--';
+    $('ret-model').textContent = vlm.model || '--';
+    $('ret-queries').textContent = vlm.total_queries != null ? vlm.total_queries + ' 次' : '--';
+    $('ret-uptime').textContent = formatUptime(vlm.gateway_uptime);
+  } catch(e) { console.error('[renderLocalModels]', e); }
+}
 
-    $('vlm-last').textContent = fmtTimeAgo(vlm.last_used);
-
-    // Queue showing (always visible)
-    if (vqPend > 0 || vqAct > 0) {
-      $('vlm-queue').textContent = `${vqPend} 待处理 · ${vqAct} 执行中`;
-    } else {
-      $('vlm-queue').textContent = `0 待处理`;
-    }
-
-    // Estimated response time
-    const vAvgLat = vlm.avg_latency_ms || 0;
-    const vEst = fmtEstTime(vqPend, vAvgLat);
-    if (vEst) {
-      $('vlm-conf-row').style.display = 'flex';
-      $('vlm-est').textContent = vEst;
-    } else {
-      $('vlm-conf-row').style.display = 'none';
-    }
-  } catch(_) {}
+function formatUptime(sec) {
+  if (!sec || sec <= 0) return '--';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 24) {
+    const d = Math.floor(h / 24);
+    return d + 'd ' + (h % 24) + 'h';
+  }
+  return h > 0 ? h + 'h ' + m + 'm' : m + 'm';
 }
 
 // ── Ops Access Control ──────────────────────────────────────────────
@@ -473,6 +460,16 @@ async function restartSvc(service) {
 
 // ── Init ─────────────────────────────────────────────────────────────
 
+// Load engine cards data (for Monitor homepage)
+async function loadEngineCards() {
+  try {
+    const r = await fetch(`${API}/hermes/local-models`);
+    const d = await r.json();
+    console.log('[loadEngineCards] data:', d);
+    renderLocalModels(d);
+  } catch(e) { console.error('[loadEngineCards]', e); }
+}
+
 // SSE real-time metrics stream with exponential backoff
 let _sseRetryDelay = 3000;
 const _sseMaxDelay = 30000;
@@ -495,8 +492,9 @@ function connectMonitorStream() {
 connectMonitorStream();
 
 checkOpsAccess();
-// Preload engine data for smooth tab switching
+// Preload engine data for smooth tab switching + Monitor homepage
 loadHermesData();
+loadEngineCards();
 
 // ── Chat ────────────────────────────────────────────────
 let chatActive = null; // current EventSource for streaming

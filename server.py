@@ -19,7 +19,7 @@ from datetime import datetime
 import psutil
 import httpx
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
@@ -47,7 +47,7 @@ class Config:
 
     # Service mapping for restart
     SERVICES: dict = {
-        "gateway": (["systemctl", "--user", "restart", "hermes-gateway"], True),
+        "gateway": (["sudo", "systemctl", "restart", "hermes-gateway"], False),
         "nginx": (["sudo", "systemctl", "restart", "nginx"], False),
         "miniapp": (["sudo", "systemctl", "restart", "hermes-mini-app"], False),
         "server": (["sudo", "reboot"], False),
@@ -238,7 +238,7 @@ async def collect_services() -> dict:
     env = get_user_env()
     loop = asyncio.get_event_loop()
     tasks = {
-        "gateway": _service_active(["systemctl", "--user", "is-active", "hermes-gateway"], env),
+        "gateway": _service_active(["systemctl", "is-active", "hermes-gateway"], env),
         "hermes": _hermes_ok(env),
         "nginx": loop.run_in_executor(None, _nginx_active),
         "llamacpp": _service_active(["systemctl", "is-active", "llama-server"], env),
@@ -363,7 +363,7 @@ async def collect_tdai_memory_engine() -> dict:
     """
     gateway_url = "http://127.0.0.1:8420"
     db_path = Path.home() / ".memory-tencentdb/memory-tdai/vectors.db"
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.utcnow().strftime("%Y-%m-%d")  # SQLite timestamps are UTC
     result = {"today_writes": 0, "today_reads": 0, "total": 0}
 
     # 1. Health check
@@ -377,7 +377,7 @@ async def collect_tdai_memory_engine() -> dict:
     except Exception:
         return result
 
-    # 2. SQLite stats
+    # 2. SQLite stats (TencentDB schema)
     if not db_path.exists():
         return result
 
@@ -386,16 +386,30 @@ async def collect_tdai_memory_engine() -> dict:
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
 
-        # Total L1 records
+        # Total L1 records (structured memories)
         cur.execute("SELECT COUNT(*) FROM l1_records")
         result["total"] = cur.fetchone()[0]
 
-        # Today's writes (created_time is ISO timestamp)
+        # Total L0 conversations (raw turns)
+        cur.execute("SELECT COUNT(*) FROM l0_conversations")
+        result["l0_count"] = cur.fetchone()[0]
+
+        # Today's L1 writes (created_time is ISO timestamp)
         cur.execute(
             "SELECT COUNT(*) FROM l1_records WHERE DATE(created_time) = ?",
             (today,)
         )
-        raw_writes = cur.fetchone()[0]
+        l1_writes = cur.fetchone()[0]
+
+        # Today's L0 writes (recorded_at is ISO timestamp)
+        cur.execute(
+            "SELECT COUNT(*) FROM l0_conversations WHERE DATE(recorded_at) = ?",
+            (today,)
+        )
+        l0_writes = cur.fetchone()[0]
+
+        # Combined: L0 captures + L1 extractions
+        raw_writes = l0_writes + l1_writes
 
         # Today's reads (updated_time)
         cur.execute(
@@ -406,27 +420,9 @@ async def collect_tdai_memory_engine() -> dict:
 
         conn.close()
 
-        # 3. Daily snapshot: compute today = raw - snapshot
-        snap = _load_tdai_snapshot()
-        if snap is None or snap.get("date") != today:
-            snap = {"date": today, "writes": raw_writes, "reads": raw_reads}
-            _save_tdai_snapshot(snap)
-            result["today_writes"] = raw_writes
-            result["today_reads"] = raw_reads
-        else:
-            if raw_writes >= snap["writes"]:
-                result["today_writes"] = raw_writes - snap["writes"]
-            else:
-                result["today_writes"] = raw_writes
-                snap["writes"] = raw_writes
-                _save_tdai_snapshot(snap)
-
-            if raw_reads >= snap["reads"]:
-                result["today_reads"] = raw_reads - snap["reads"]
-            else:
-                result["today_reads"] = raw_reads
-                snap["reads"] = raw_reads
-                _save_tdai_snapshot(snap)
+        # Direct SQL filter already gives today's count, no snapshot needed
+        result["today_writes"] = raw_writes
+        result["today_reads"] = raw_reads
 
     except Exception:
         pass
@@ -615,7 +611,12 @@ async def hermes_platforms():
 async def hermes_memory():
     """Get memory stats from TencentDB Gateway."""
     data = await collect_tdai_memory_engine()
-    return {"count": data["total"], "today_writes": data["today_writes"], "today_queries": data["today_reads"]}
+    return {
+        "l1_count": data["total"],          # 结构化记忆数
+        "l0_count": data.get("l0_count", 0), # 原始对话轮数
+        "today_writes": data["today_writes"],
+        "today_queries": data["today_reads"]
+    }
 
 
 @app.get("/api/hermes/engines")
@@ -660,17 +661,17 @@ async def hermes_engines():
             r = await c.get("http://127.0.0.1:8420/health")
             if r.status_code == 200:
                 data = r.json()
-                # Vector engine status (embedding: bge-large-zh-v1.5 @ :8082)
+                # Vector engine status (embedding: gemini-embedding-2 via Gemini API)
                 result["vector"] = {
-                    "provider": "TencentDB",
-                    "model": "bge-large-zh-v1.5",
-                    "dimension": "1024",
+                    "provider": "Gemini",
+                    "model": "gemini-embedding-2",
+                    "dimension": "3072",
                     "active": data.get("stores", {}).get("embeddingService", False),
                 }
                 # Retrieval status
                 result["retrieval"] = {
-                    "provider": "TencentDB",
-                    "model": "hunyuan-turbos",
+                    "provider": "MiniMax",
+                    "model": "MiniMax-M2.5",
                     "active": data.get("stores", {}).get("vectorStore", False),
                 }
     except Exception:
@@ -682,34 +683,82 @@ async def hermes_engines():
 
 @app.get("/api/hermes/local-models")
 async def local_models_status():
-    """Real-time status for memory backend models (TencentDB uses remote APIs)."""
+    """Real-time status for memory backend models."""
     result = {
         "embedding": {
-            "model": "remote", "provider": "tencent-coding",
-            "status": "offline", "calls": 0, "tokens": 0,
-            "last_used": None, "queue_pending": 0, "queue_active": 0,
-            "avg_latency_ms": 0,
+            "model": "gemini-embedding-2",
+            "provider": "Gemini",
+            "status": "offline",
+            "dimension": "3072",
+            "uptime_sec": None,
         },
         "vlm": {
-            "model": "hunyuan-turbos", "provider": "tencent-coding",
-            "status": "offline", "loaded": False, "processor": "API",
-            "param_size": "", "quant": "",
-            "queries": 0, "avg_latency_ms": 0,
-            "zero_result_rate": 0, "last_used": None,
-            "queue_pending": 0, "queue_active": 0,
+            "model": "hunyuan-2.0-instruct",
+            "provider": "Tencent",
+            "status": "offline",
+            "gateway_uptime": None,
+            "gateway_version": None,
         },
     }
 
-    # Check TencentDB Gateway health
+    # Check embedding status from Gateway health
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://127.0.0.1:8420/health")
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("stores", {}).get("embeddingService"):
+                    result["embedding"]["status"] = "active"
+                    result["embedding"]["uptime_sec"] = data.get("uptime")
+    except Exception:
+        pass
+
+    # Check TencentDB Gateway (:8420)
     try:
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.get("http://127.0.0.1:8420/health")
             if r.status_code == 200:
                 data = r.json()
                 if data.get("stores", {}).get("vectorStore"):
-                    result["embedding"]["status"] = "active"
                     result["vlm"]["status"] = "online"
-                    result["vlm"]["loaded"] = True
+                    result["vlm"]["gateway_uptime"] = data.get("uptime")
+                    result["vlm"]["gateway_version"] = data.get("version")
+    except Exception:
+        pass
+
+    # Get memory count from SQLite
+    try:
+        import sqlite3
+        db_path = os.path.expanduser("~/.memory-tencentdb/memory-tdai/vectors.db")
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM l1_records")
+        result["vlm"]["memory_count"] = cur.fetchone()[0]
+        conn.close()
+    except Exception:
+        pass
+
+    # Get memory record count from SQLite
+    try:
+        import sqlite3
+        from datetime import datetime, timezone
+        db_path = Path.home() / ".memory-tencentdb" / "memory-tdai" / "vectors.db"
+        if db_path.exists():
+            conn = sqlite3.connect(str(db_path))
+            cur = conn.cursor()
+            result["vlm"]["memory_count"] = cur.execute("SELECT COUNT(*) FROM l1_records").fetchone()[0]
+            result["vlm"]["l0_count"] = cur.execute("SELECT COUNT(*) FROM l0_conversations").fetchone()[0]
+            # Today's retrieval queries (updated_time != created_time)
+            today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            result["vlm"]["today_queries"] = cur.execute(
+                "SELECT COUNT(*) FROM l1_records WHERE DATE(updated_time) = ? AND DATE(updated_time) != DATE(created_time)",
+                (today_utc,)
+            ).fetchone()[0]
+            # Total retrieval count (all time, records ever re-accessed)
+            result["vlm"]["total_queries"] = cur.execute(
+                "SELECT COUNT(*) FROM l1_records WHERE DATE(updated_time) != DATE(created_time)"
+            ).fetchone()[0]
+            conn.close()
     except Exception:
         pass
 
@@ -757,21 +806,38 @@ async def hermes_overview():
     mem = await collect_tdai_memory_engine()
     data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"]}
 
-    # 4. Engines (LLM + Memory Engine only — vector & retrieval moved to local_models)
-    engines = {"llm": {"name": "未知", "provider": "未知"}, "memory": {"provider": "未知", "status": "unknown"}}
+    # 4. Engines (all 4 — unified status badges)
+    engines = {
+        "llm": {"name": "未知", "provider": "未知", "status": "offline"},
+        "memory": {"provider": "未知", "status": "offline"},
+    }
+    # LLM
     try:
         rc, out, _ = await arun([cfg.HERMES_BIN, "config"], env=get_user_env(), timeout=10)
         m = re.search(r"'default':\s*'([^']*)'", out)
         p = re.search(r"'provider':\s*'([^']*)'", out)
         if m: engines["llm"]["name"] = m.group(1)
         if p: engines["llm"]["provider"] = p.group(1)
+        if engines["llm"]["name"] != "未知":
+            engines["llm"]["status"] = "active"
     except Exception:
         pass
+    # Memory (TencentDB health)
     try:
-        rc, out, _ = await arun([cfg.HERMES_BIN, "memory"], env=get_user_env(), timeout=10)
-        for line in out.splitlines():
-            if "Status:" in line: engines["memory"]["status"] = line.split("Status:")[1].strip()
-            if "Provider:" in line: engines["memory"]["provider"] = line.split("Provider:")[1].strip()
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://127.0.0.1:8420/health")
+            if r.status_code == 200:
+                hdata = r.json()
+                emb_ok = hdata.get("stores", {}).get("embeddingService", False)
+                vec_ok = hdata.get("stores", {}).get("vectorStore", False)
+                engines["memory"]["provider"] = "TencentDB"
+                if emb_ok and vec_ok:
+                    engines["memory"]["status"] = "healthy"
+                elif vec_ok:
+                    engines["memory"]["status"] = "degraded"
+                else:
+                    engines["memory"]["status"] = "offline"
+                engines["memory"]["uptime_sec"] = hdata.get("uptime")
     except Exception:
         pass
     data["engines"] = engines
@@ -788,7 +854,7 @@ async def hermes_alerts():
     """Last 24h journalctl errors."""
     try:
         rc, out, _ = await arun(
-            ["journalctl", "--user", "-u", "hermes-gateway", "--since", "24 hours ago", "--no-pager"],
+            ["journalctl", "-u", "hermes-gateway", "--since", "24 hours ago", "--no-pager"],
             env=get_user_env(), timeout=10,
         )
         alerts = [l.strip() for l in out.splitlines() if "ERROR" in l or "WARNING" in l or "CRITICAL" in l]
@@ -864,7 +930,7 @@ async def ops_emergency_restart(request: Request):
     results = []
 
     # 1. Stop gateway
-    rc, _, _ = await arun(["systemctl", "--user", "stop", "hermes-gateway"], env=env)
+    rc, _, _ = await arun(["sudo", "systemctl", "stop", "hermes-gateway"], env=env)
     results.append(f"Stop gateway → exit={rc}")
 
     # 2. Kill all hermes processes
@@ -883,13 +949,13 @@ async def ops_emergency_restart(request: Request):
     await asyncio.sleep(2)
 
     # 3. Start gateway
-    rc, _, _ = await arun(["systemctl", "--user", "start", "hermes-gateway"], env=env)
+    rc, _, _ = await arun(["sudo", "systemctl", "start", "hermes-gateway"], env=env)
     results.append(f"Start gateway → exit={rc}")
 
     await asyncio.sleep(1)
 
     # 4. Verify
-    active = await _service_active(["systemctl", "--user", "is-active", "hermes-gateway"], env)
+    active = await _service_active(["systemctl", "is-active", "hermes-gateway"], env)
     results.append(f"Gateway: {'✅ running' if active else '❌ not running'}")
 
     return {"results": results}

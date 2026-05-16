@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Hermes Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=11">
+<link rel="stylesheet" href="/static/style.css?v=31">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -77,16 +77,16 @@
   <div class="section-title">⚡ 服务状态</div>
   <div class="card traffic-card" id="traffic-card">
     <div class="tr">
-      <span>↑ 上传</span> <span class="tv up" id="net-up">--</span>
+      <span>↑ 上传</span><span class="tv up" id="net-up">--</span>
     </div>
     <div class="tr">
-      <span>↓ 下载</span> <span class="tv down" id="net-down">--</span>
+      <span>↓ 下载</span><span class="tv down" id="net-down">--</span>
     </div>
     <div class="tr" style="align-items:center">
       <span style="font-weight:600">📊 用量</span>
       <span style="margin-left:auto;font-size:11px;line-height:1.6">
-        <div><span style="color:var(--hint)">出站</span> <span id="net-tx" style="display:inline-block;min-width:70px;text-align:right">--</span></div>
-        <div><span style="color:var(--hint)">入站</span> <span id="net-rx" style="display:inline-block;min-width:70px;text-align:right">--</span></div>
+        <div><span style="color:var(--hint)">出站</span><span style="margin-left:12px;display:inline-block;min-width:50px;text-align:right" id="net-tx">--</span></div>
+        <div><span style="color:var(--hint)">入站</span><span style="margin-left:12px;display:inline-block;min-width:50px;text-align:right" id="net-rx">--</span></div>
       </span>
     </div>
   </div>
@@ -116,85 +116,103 @@
 <!-- ══ Page: Hermes ══ -->
 <div id="page-hermes" class="page">
 
-  <div class="model-card" id="model-card">
-    <span class="model-icon">🧠</span>
-    <div class="model-info">
-      <div class="model-name" id="hermes-model">--</div>
-      <div class="model-provider" id="hermes-provider">Provider: --</div>
-    </div>
-  </div>
-
   <div class="card platform-card">
     <div class="card-title">⚙️ 驱动引擎</div>
     <div class="engine-grid" id="engine-grid">
       <div class="engine-card" data-engine="llm">
-        <div class="engine-icon">🧠</div>
-        <div class="engine-l">LLM 引擎</div>
-        <div class="engine-v" id="eng-llm">--</div>
-        <div class="engine-sub" id="eng-llm-sub"></div>
-      </div>
-      <div class="engine-card" data-engine="memory">
-        <div class="engine-icon">💾</div>
-        <div class="engine-l">记忆引擎</div>
-        <div class="engine-v" id="eng-memory">--</div>
-        <div class="engine-sub" id="eng-memory-sub"></div>
-      </div>
-      <div class="engine-card" data-engine="vector">
         <div class="lm-header">
-          <span class="lm-icon">🧮</span>
-          <span class="lm-badge" id="emb-badge">● 空闲</span>
+          <span class="lm-icon">🧠</span>
+          <span class="lm-badge" id="llm-badge">● 离线</span>
         </div>
-        <div class="lm-name">向量引擎</div>
-        <div class="lm-model" id="emb-model">--</div>
+        <div class="lm-name">LLM 引擎</div>
         <div class="lm-divider"></div>
         <div class="lm-row">
-          <span class="lm-lbl">📊 调用</span>
-          <span class="lm-val" id="emb-calls">0</span>
+          <span class="lm-lbl">Provider</span>
+          <span class="lm-val" id="eng-llm-provider">--</span>
         </div>
         <div class="lm-row">
-          <span class="lm-lbl">📝 处理</span>
-          <span class="lm-val" id="emb-tokens">0 tokens</span>
+          <span class="lm-lbl">Model</span>
+          <span class="lm-val" id="eng-llm">--</span>
         </div>
         <div class="lm-row">
-          <span class="lm-lbl">⏱ 上次使用</span>
-          <span class="lm-val" id="emb-last">--</span>
+          <span class="lm-lbl">⏱ 响应</span>
+          <span class="lm-val" id="eng-llm-latency">--</span>
         </div>
-        <div class="lm-row" id="emb-queue-row">
-          <span class="lm-lbl">📋 队列</span>
-          <span class="lm-val" id="emb-queue">0 待处理</span>
+        <div class="lm-row">
+          <span class="lm-lbl">🧩 类型</span>
+          <span class="lm-val" id="eng-llm-type">--</span>
         </div>
-        <div class="lm-conf-row" id="emb-conf-row" style="display:none">
-          <span>⏳ 预计处理</span>
-          <span class="lm-est" id="emb-est">--</span>
+      </div>
+      <div class="engine-card" data-engine="memory">
+        <div class="lm-header">
+          <span class="lm-icon">💾</span>
+          <span class="lm-badge" id="mem-badge">● 离线</span>
+        </div>
+        <div class="lm-name">记忆引擎</div>
+        <div class="lm-divider"></div>
+        <div class="lm-row">
+          <span class="lm-lbl">Provider</span>
+          <span class="lm-val" id="eng-memory">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">状态</span>
+          <span class="lm-val" id="eng-memory-status">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">🧠 记忆</span>
+          <span class="lm-val" id="eng-memory-count">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">⏱ 运行时长</span>
+          <span class="lm-val" id="eng-memory-uptime">--</span>
+        </div>
+      </div>
+      <div class="engine-card" data-engine="embedding">
+        <div class="lm-header">
+          <span class="lm-icon">🧮</span>
+          <span class="lm-badge" id="emb-badge">● 离线</span>
+        </div>
+        <div class="lm-name">嵌入引擎</div>
+        <div class="lm-divider"></div>
+        <div class="lm-row">
+          <span class="lm-lbl">Provider</span>
+          <span class="lm-val" id="emb-provider">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">Model</span>
+          <span class="lm-val" id="emb-model">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">📐 维度</span>
+          <span class="lm-val" id="emb-dim">--</span>
+        </div>
+        <div class="lm-row">
+          <span class="lm-lbl">⏱ 运行时长</span>
+          <span class="lm-val" id="emb-uptime">--</span>
         </div>
       </div>
       <div class="engine-card" data-engine="retrieval">
         <div class="lm-header">
           <span class="lm-icon">🔍</span>
-          <span class="lm-badge" id="vlm-badge">● 工作中</span>
+          <span class="lm-badge" id="ret-badge">● 离线</span>
         </div>
-        <div class="lm-name">本地检索</div>
-        <div class="lm-model" id="vlm-model">--</div>
+        <div class="lm-name">检索引擎</div>
         <div class="lm-divider"></div>
         <div class="lm-row">
-          <span class="lm-lbl">🔎 总查询</span>
-          <span class="lm-val" id="vlm-queries">0</span>
+          <span class="lm-lbl">Provider</span>
+          <span class="lm-val" id="ret-provider">--</span>
         </div>
         <div class="lm-row">
-          <span class="lm-lbl">⏱ 平均延迟</span>
-          <span class="lm-val" id="vlm-latency">--</span>
+          <span class="lm-lbl">Model</span>
+          <span class="lm-val" id="ret-model">--</span>
         </div>
         <div class="lm-row">
-          <span class="lm-lbl">⏱ 上次调用</span>
-          <span class="lm-val" id="vlm-last">--</span>
+          <span class="lm-lbl">🔍 检索次数</span>
+          <span class="lm-val" id="ret-queries">--</span>
         </div>
-        <div class="lm-row" id="vlm-queue-row">
-          <span class="lm-lbl">📋 队列</span>
-          <span class="lm-val" id="vlm-queue">0 待处理</span>
-        </div>
-        <div class="lm-conf-row" id="vlm-conf-row" style="display:none">
-          <span>⏳ 预计响应</span>
-          <span class="lm-est" id="vlm-est">--</span>
+        <div class="lm-row">
+          <span class="lm-lbl">⏱ 运行时长</span>
+          <span class="lm-val" id="ret-uptime">--</span>
         </div>
       </div>
     </div>
@@ -210,11 +228,11 @@
     <div class="mem-left">
       <div class="mem-box orange">
         <div class="mem-num" id="mem-writes">--</div>
-        <div class="mem-lbl">今日提交</div>
+        <div class="mem-lbl">今日捕获</div>
       </div>
       <div class="mem-box blue">
         <div class="mem-num" id="mem-queries">--</div>
-        <div class="mem-lbl">今日查询</div>
+        <div class="mem-lbl">今日调用</div>
       </div>
     </div>
     <div class="flow-bridge">
@@ -299,6 +317,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=19"></script>
+<script src="/static/app.js?v=31"></script>
 </body>
 </html>
