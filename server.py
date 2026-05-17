@@ -358,8 +358,9 @@ async def collect_tdai_memory_engine() -> dict:
     """Get memory engine stats from TencentDB Gateway + SQLite.
 
     total        — L1 memory records count
-    today_writes — L1 records created today
-    today_reads  — L1 records accessed today (approx from FTS queries)
+    today_writes — L0 captures + L1 extractions today
+    today_reads  — Recall completed count from syslog today (CST)
+    week_recalls — Recall completed count from syslog this week
     """
     gateway_url = "http://127.0.0.1:8420"
     db_path = Path.home() / ".memory-tencentdb/memory-tdai/vectors.db"
@@ -383,6 +384,8 @@ async def collect_tdai_memory_engine() -> dict:
 
     try:
         import sqlite3
+        import subprocess
+        import json as _json_mod
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
 
@@ -411,12 +414,22 @@ async def collect_tdai_memory_engine() -> dict:
         # Combined: L0 captures + L1 extractions
         raw_writes = l0_writes + l1_writes
 
-        # Today's reads (updated_time)
-        cur.execute(
-            "SELECT COUNT(*) FROM l1_records WHERE DATE(updated_time) = ? AND DATE(updated_time) != DATE(created_time)",
-            (today,)
-        )
-        raw_reads = cur.fetchone()[0]
+        # Today's reads: count "Recall completed" entries in syslog for today (CST)
+        try:
+            today_cst = datetime.now().strftime("%Y-%m-%d")
+            cmd = f"grep 'Recall completed' /var/log/syslog | grep '{today_cst}' | wc -l"
+            raw_reads = int(subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip() or 0)
+        except Exception:
+            raw_reads = 0
+
+        # Week's reads: syslog total (syslog rotates weekly)
+        try:
+            cmd_total = "grep -c 'Recall completed' /var/log/syslog"
+            week_reads = int(subprocess.run(cmd_total, shell=True, capture_output=True, text=True).stdout.strip() or 0)
+        except Exception:
+            week_reads = raw_reads
+        
+        result["week_recalls"] = week_reads
 
         conn.close()
 
@@ -615,7 +628,8 @@ async def hermes_memory():
         "l1_count": data["total"],          # 结构化记忆数
         "l0_count": data.get("l0_count", 0), # 原始对话轮数
         "today_writes": data["today_writes"],
-        "today_queries": data["today_reads"]
+        "today_queries": data["today_reads"],
+        "week_recalls": data.get("week_recalls", 0)  # 本周检索次数
     }
 
 
@@ -738,26 +752,32 @@ async def local_models_status():
     except Exception:
         pass
 
+    # Get memory stats from syslog (syslog rotates weekly)
+    try:
+        import subprocess
+        from datetime import datetime
+        # Today's recalls
+        today_cst = datetime.now().strftime("%Y-%m-%d")
+        cmd_today = f"grep 'Recall completed' /var/log/syslog | grep '{today_cst}' | wc -l"
+        today_queries = int(subprocess.run(cmd_today, shell=True, capture_output=True, text=True).stdout.strip() or 0)
+        # Week's recalls (syslog total)
+        cmd_week = "grep -c 'Recall completed' /var/log/syslog"
+        week_queries = int(subprocess.run(cmd_week, shell=True, capture_output=True, text=True).stdout.strip() or 0)
+        result["vlm"]["today_queries"] = today_queries
+        result["vlm"]["total_queries"] = week_queries
+    except Exception:
+        result["vlm"]["today_queries"] = 0
+        result["vlm"]["total_queries"] = 0
+    
     # Get memory record count from SQLite
     try:
         import sqlite3
-        from datetime import datetime, timezone
         db_path = Path.home() / ".memory-tencentdb" / "memory-tdai" / "vectors.db"
         if db_path.exists():
             conn = sqlite3.connect(str(db_path))
             cur = conn.cursor()
             result["vlm"]["memory_count"] = cur.execute("SELECT COUNT(*) FROM l1_records").fetchone()[0]
             result["vlm"]["l0_count"] = cur.execute("SELECT COUNT(*) FROM l0_conversations").fetchone()[0]
-            # Today's retrieval queries (updated_time != created_time)
-            today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            result["vlm"]["today_queries"] = cur.execute(
-                "SELECT COUNT(*) FROM l1_records WHERE DATE(updated_time) = ? AND DATE(updated_time) != DATE(created_time)",
-                (today_utc,)
-            ).fetchone()[0]
-            # Total retrieval count (all time, records ever re-accessed)
-            result["vlm"]["total_queries"] = cur.execute(
-                "SELECT COUNT(*) FROM l1_records WHERE DATE(updated_time) != DATE(created_time)"
-            ).fetchone()[0]
             conn.close()
     except Exception:
         pass
