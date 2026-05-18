@@ -707,8 +707,8 @@ async def local_models_status():
             "uptime_sec": None,
         },
         "vlm": {
-            "model": "hunyuan-2.0-instruct",
-            "provider": "Tencent",
+            "model": "glm-5",
+            "provider": "Tencent Coding",
             "status": "offline",
             "gateway_uptime": None,
             "gateway_version": None,
@@ -932,6 +932,33 @@ async def ops_check_access(request: Request):
     return {"ip": ip, "allowed": allowed, "need_password": not allowed}
 
 
+# Init cache (30s TTL — balance speed vs freshness)
+_INIT_CACHE = {"data": None, "ts": 0.0, "ip": None}
+_INIT_TTL = 30
+
+
+@app.get("/api/init")
+async def init_data(request: Request):
+    """Combined init endpoint — cached 30s at CDN + backend. Merges ops + hermes + cron."""
+    global _INIT_CACHE
+    ip = get_client_ip(request)
+    now = time.time()
+
+    # Return cached if fresh AND same IP (ops check is IP-specific)
+    if _INIT_CACHE["data"] and now - _INIT_CACHE["ts"] < _INIT_TTL and _INIT_CACHE["ip"] == ip:
+        return JSONResponse(content=_INIT_CACHE["data"], headers={"Cache-Control": "public, max-age=30"})
+
+    # Parallel fetch all data
+    ops_task = asyncio.create_task(ops_check_access(request))
+    hermes_task = asyncio.create_task(hermes_overview())
+    cron_task = asyncio.create_task(cron_jobs())
+    ops, hermes, cron = await asyncio.gather(ops_task, hermes_task, cron_task)
+    result = {"ops": ops, "hermes": hermes, "cron": cron}
+
+    _INIT_CACHE = {"data": result, "ts": now, "ip": ip}
+    return JSONResponse(content=result, headers={"Cache-Control": "public, max-age=30"})
+
+
 @app.post("/api/ops/verify-password")
 async def ops_verify_password(request: Request):
     data = await request.json()
@@ -1137,7 +1164,11 @@ async def chat(request: Request):
 
 @app.get("/")
 async def index():
-    return FileResponse(static_dir / "index.html")
+    """Index.html with 1-year cache. Purge CDN on update."""
+    return FileResponse(
+        static_dir / "index.html",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 if __name__ == "__main__":

@@ -159,90 +159,96 @@ function renderMonitor(data) {
 // ── Hermes Page Data (loaded on tab switch, refreshed periodically) ──
 
 let hermesRefreshTimer = null;
+let hermesCache = null; // Cache for instant tab switch
+
+// Pure render function (extracted for init + load)
+function renderHermesData(d) {
+  // Model
+  if (d.model) {
+    const modelEl = $('hermes-model');
+    if (modelEl) modelEl.textContent = d.model.model || '--';
+    const providerEl = $('hermes-provider');
+    if (providerEl) providerEl.textContent = 'Provider: ' + (d.model.provider || '--');
+    const headerModelEl = $('header-model');
+    if (headerModelEl) headerModelEl.textContent = '🤖 ' + (d.model.model && d.model.model.length > 20 ? d.model.model.slice(0,20)+'…' : d.model.model || '--');
+  }
+
+  // Platforms — skip if unchanged to prevent SVG flicker
+  if (d.platforms) {
+    const icons = {
+      Telegram: '<img src="/static/icons/telegram.svg" class="platform-svg">',
+      QQ: '<img src="/static/icons/qq.svg" class="platform-svg">',
+      '微信': '<img src="/static/icons/wechat.svg" class="platform-svg">',
+    };
+    const html = Object.entries(d.platforms||{}).map(([n,v]) =>
+      `<div class="platform-item">
+        <div class="platform-icon">${icons[n]||'📡'}</div>
+        <div class="platform-name">${n}</div>
+        <div class="platform-status ${v?'online':'offline'}">${v?'在线':'离线'}</div>
+      </div>`
+    ).join('');
+    if ($('platform-grid').innerHTML !== html) {
+      $('platform-grid').innerHTML = html;
+    }
+  }
+
+  // Memory
+  if (d.memory) {
+    $('mem-count').textContent = d.memory.count ?? '--';
+    $('mem-writes').textContent = d.memory.today_writes ?? 0;
+    $('mem-queries').textContent = d.memory.today_queries ?? 0;
+  }
+
+  // Engines (all 4 unified)
+  if (d.engines) {
+    const ed = d.engines;
+
+    // LLM
+    const llmStatus = ed.llm?.status === 'active' ? 'active' : 'offline';
+    const llmBadge = $('llm-badge');
+    if (llmBadge) {
+      llmBadge.className = 'lm-badge ' + llmStatus;
+      llmBadge.textContent = llmStatus === 'active' ? '● 在线' : '○ 离线';
+    }
+    $('eng-llm').textContent = ed.llm?.name || '--';
+    $('eng-llm-provider').textContent = ed.llm?.provider || '--';
+    const llmLatency = $('eng-llm-latency');
+    if (llmLatency) llmLatency.textContent = llmStatus === 'active' ? '正常' : '--';
+    const llmType = $('eng-llm-type');
+    if (llmType) llmType.textContent = llmStatus === 'active' ? '云端' : '--';
+
+    // Memory
+    const memS = ed.memory?.status;
+    const memBadge = $('mem-badge');
+    if (memBadge) {
+      const memCls = memS === 'healthy' ? 'active' : memS === 'degraded' ? 'offline' : 'offline';
+      memBadge.className = 'lm-badge ' + memCls;
+      memBadge.textContent = memS === 'healthy' ? '● 正常' : memS === 'degraded' ? '● 降级' : '○ 离线';
+    }
+    $('eng-memory').textContent = ed.memory?.provider || '--';
+    const memStatusEl = $('eng-memory-status');
+    if (memStatusEl) {
+      memStatusEl.textContent = memS === 'healthy' ? '正常' : memS === 'degraded' ? '降级' : memS || '--';
+      memStatusEl.style.color = memS === 'healthy' ? 'var(--success)' : memS === 'degraded' ? 'var(--warn)' : '';
+    }
+    const memCountEl = $('eng-memory-count');
+    if (memCountEl) memCountEl.textContent = d.memory?.count ? d.memory.count + ' 条' : '--';
+    const memUptime = $('eng-memory-uptime');
+    if (memUptime) memUptime.textContent = formatUptime(ed.memory?.uptime_sec);
+  }
+
+  // Local models (redesigned vector + retrieval cards)
+  if (d.local_models) {
+    renderLocalModels(d.local_models);
+  }
+}
 
 async function loadHermesData() {
   try {
     const r = await fetch(`${API}/hermes/overview`);
     const d = await r.json();
-
-    // Model
-    if (d.model) {
-      const modelEl = $('hermes-model');
-      if (modelEl) modelEl.textContent = d.model.model || '--';
-      const providerEl = $('hermes-provider');
-      if (providerEl) providerEl.textContent = 'Provider: ' + (d.model.provider || '--');
-      const headerModelEl = $('header-model');
-      if (headerModelEl) headerModelEl.textContent = '🤖 ' + (d.model.model && d.model.model.length > 20 ? d.model.model.slice(0,20)+'…' : d.model.model || '--');
-    }
-
-    // Platforms — skip if unchanged to prevent SVG flicker
-    if (d.platforms) {
-      const icons = {
-        Telegram: '<img src="/static/icons/telegram.svg" class="platform-svg">',
-        QQ: '<img src="/static/icons/qq.svg" class="platform-svg">',
-        '微信': '<img src="/static/icons/wechat.svg" class="platform-svg">',
-      };
-      const html = Object.entries(d.platforms||{}).map(([n,v]) =>
-        `<div class="platform-item">
-          <div class="platform-icon">${icons[n]||'📡'}</div>
-          <div class="platform-name">${n}</div>
-          <div class="platform-status ${v?'online':'offline'}">${v?'在线':'离线'}</div>
-        </div>`
-      ).join('');
-      if ($('platform-grid').innerHTML !== html) {
-        $('platform-grid').innerHTML = html;
-      }
-    }
-
-    // Memory
-    if (d.memory) {
-      $('mem-count').textContent = d.memory.count ?? '--';
-      $('mem-writes').textContent = d.memory.today_writes ?? 0;
-      $('mem-queries').textContent = d.memory.today_queries ?? 0;
-    }
-
-    // Engines (all 4 unified)
-    if (d.engines) {
-      const ed = d.engines;
-
-      // LLM
-      const llmStatus = ed.llm?.status === 'active' ? 'active' : 'offline';
-      const llmBadge = $('llm-badge');
-      if (llmBadge) {
-        llmBadge.className = 'lm-badge ' + llmStatus;
-        llmBadge.textContent = llmStatus === 'active' ? '● 在线' : '○ 离线';
-      }
-      $('eng-llm').textContent = ed.llm?.name || '--';
-      $('eng-llm-provider').textContent = ed.llm?.provider || '--';
-      const llmLatency = $('eng-llm-latency');
-      if (llmLatency) llmLatency.textContent = llmStatus === 'active' ? '正常' : '--';
-      const llmType = $('eng-llm-type');
-      if (llmType) llmType.textContent = llmStatus === 'active' ? '云端' : '--';
-
-      // Memory
-      const memS = ed.memory?.status;
-      const memBadge = $('mem-badge');
-      if (memBadge) {
-        const memCls = memS === 'healthy' ? 'active' : memS === 'degraded' ? 'offline' : 'offline';
-        memBadge.className = 'lm-badge ' + memCls;
-        memBadge.textContent = memS === 'healthy' ? '● 正常' : memS === 'degraded' ? '● 降级' : '○ 离线';
-      }
-      $('eng-memory').textContent = ed.memory?.provider || '--';
-      const memStatusEl = $('eng-memory-status');
-      if (memStatusEl) {
-        memStatusEl.textContent = memS === 'healthy' ? '正常' : memS === 'degraded' ? '降级' : memS || '--';
-        memStatusEl.style.color = memS === 'healthy' ? 'var(--success)' : memS === 'degraded' ? 'var(--warn)' : '';
-      }
-      const memCountEl = $('eng-memory-count');
-      if (memCountEl) memCountEl.textContent = d.memory?.count ? d.memory.count + ' 条' : '--';
-      const memUptime = $('eng-memory-uptime');
-      if (memUptime) memUptime.textContent = formatUptime(ed.memory?.uptime_sec);
-    }
-
-    // Local models (redesigned vector + retrieval cards)
-    if (d.local_models) {
-      renderLocalModels(d.local_models);
-    }
+    hermesCache = d; // Cache for tab switch
+    renderHermesData(d);
   } catch(e) { console.error('[loadHermesData]', e); }
 }
 
@@ -361,29 +367,34 @@ async function loadCronJobs() {
     const r = await fetch(`${API}/cron/jobs`, { signal: ctrl.signal });
     clearTimeout(timer);
     const d = await r.json();
-    if (!d.jobs || d.jobs.length === 0) {
-      list.innerHTML = '<div style="font-size:12px;color:var(--hint);padding:8px 12px">暂无定时任务</div>';
-      return;
-    }
-    list.innerHTML = d.jobs.map(j => {
-      const s = j.status || 'unknown';
-      const cls = s === 'ok' ? 'status-ok' : s === 'error' ? 'status-error' : 'status-unknown';
-      const dot = s === 'ok' ? 'dot-ok' : s === 'error' ? 'dot-error' : 'dot-unknown';
-      const label = s === 'ok' ? '成功' : s === 'error' ? '失败' : '未启动';
-      const sub = j.last_run ? fmtTimeAgo(j.last_run) : '';
-      return `<div class="cron-job-row">
-        <span class="cron-job-dot ${dot}"></span>
-        <div class="cron-job-info">
-          <div class="cron-job-name">${j.name || j.id}</div>
-          ${sub ? `<div class="cron-job-sub">${sub}</div>` : ''}
-        </div>
-        <span class="cron-job-status ${cls}">${label}</span>
-      </div>`;
-    }).join('');
+    renderCronJobs(d.jobs);
   } catch(e) {
     const msg = e.name === 'AbortError' ? '加载超时，请检查 Hermes 服务' : '加载失败';
-    list.innerHTML = `<div style="font-size:12px;color:var(--danger);padding:8px 12px">${msg}</div>`;
+    $('cron-jobs-list').innerHTML = `<div style="font-size:12px;color:var(--danger);padding:8px 12px">${msg}</div>`;
   }
+}
+
+function renderCronJobs(jobs) {
+  const list = $('cron-jobs-list');
+  if (!jobs || jobs.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--hint);padding:8px 12px">暂无定时任务</div>';
+    return;
+  }
+  list.innerHTML = jobs.map(j => {
+    const s = j.status || 'unknown';
+    const cls = s === 'ok' ? 'status-ok' : s === 'error' ? 'status-error' : 'status-unknown';
+    const dot = s === 'ok' ? 'dot-ok' : s === 'error' ? 'dot-error' : 'dot-unknown';
+    const label = s === 'ok' ? '成功' : s === 'error' ? '失败' : '未启动';
+    const sub = j.last_run ? fmtTimeAgo(j.last_run) : '';
+    return `<div class="cron-job-row">
+      <span class="cron-job-dot ${dot}"></span>
+      <div class="cron-job-info">
+        <div class="cron-job-name">${j.name || j.id}</div>
+        ${sub ? `<div class="cron-job-sub">${sub}</div>` : ''}
+      </div>
+      <span class="cron-job-status ${cls}">${label}</span>
+    </div>`;
+  }).join('');
 }
 
 async function verifyOps() {
@@ -490,10 +501,29 @@ function connectMonitorStream() {
   });
 }
 connectMonitorStream();
-
-checkOpsAccess();
-// Preload engine data for smooth tab switching + Monitor homepage
-loadHermesData();
+// Single init call — fetch ops/hermes/cron in one RTT
+(async () => {
+  try {
+    const r = await fetch(`${API}/init`);
+    const d = await r.json();
+    // Render Hermes data
+    if (d.hermes) renderHermesData(d.hermes);
+    // Render cron jobs if ops authorized
+    if (d.ops?.allowed && d.cron?.jobs) renderCronJobs(d.cron.jobs);
+    // Update ops UI
+    if (d.ops) {
+      if (d.ops.allowed) {
+        opsAuth = true;
+        $('ops-panel').style.display = 'block';
+        $('ops-login').style.display = 'none';
+      } else {
+        $('ops-login').style.display = 'block';
+        $('ops-msg').textContent = `您的 IP (${d.ops.ip}) 需密码验证`;
+      }
+    }
+  } catch(e) { console.error('[init]', e); }
+})();
+// Preload engine cards for Monitor homepage
 loadEngineCards();
 
 // ── Chat ────────────────────────────────────────────────
