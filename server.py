@@ -179,8 +179,8 @@ def _sample_io() -> dict:
 
 def collect_system() -> dict:
     """Single-pass system metric collection."""
-    cpu_percent = psutil.cpu_percent(interval=0.3)
-    cpu_per_core = psutil.cpu_percent(interval=0.2, percpu=True)
+    cpu_percent = psutil.cpu_percent(interval=0)
+    cpu_per_core = psutil.cpu_percent(interval=0, percpu=True)
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
     load = os.getloadavg()
@@ -364,7 +364,7 @@ async def collect_tdai_memory_engine() -> dict:
     """
     gateway_url = "http://127.0.0.1:8420"
     db_path = Path.home() / ".memory-tencentdb/memory-tdai/vectors.db"
-    today = datetime.utcnow().strftime("%Y-%m-%d")  # SQLite timestamps are UTC
+    today = datetime.now().strftime("%Y-%m-%d")  # Beijing time for user-facing display
     result = {"today_writes": 0, "today_reads": 0, "total": 0}
 
     # 1. Health check
@@ -397,16 +397,16 @@ async def collect_tdai_memory_engine() -> dict:
         cur.execute("SELECT COUNT(*) FROM l0_conversations")
         result["l0_count"] = cur.fetchone()[0]
 
-        # Today's L1 writes (created_time is ISO timestamp)
+        # Today's L1 writes (created_time is UTC ISO timestamp, add 8h for Beijing time)
         cur.execute(
-            "SELECT COUNT(*) FROM l1_records WHERE DATE(created_time) = ?",
+            "SELECT COUNT(*) FROM l1_records WHERE DATE(created_time, '+8 hours') = ?",
             (today,)
         )
         l1_writes = cur.fetchone()[0]
 
-        # Today's L0 writes (recorded_at is ISO timestamp)
+        # Today's L0 writes (recorded_at is UTC ISO timestamp, add 8h for Beijing time)
         cur.execute(
-            "SELECT COUNT(*) FROM l0_conversations WHERE DATE(recorded_at) = ?",
+            "SELECT COUNT(*) FROM l0_conversations WHERE DATE(recorded_at, '+8 hours') = ?",
             (today,)
         )
         l0_writes = cur.fetchone()[0]
@@ -1055,6 +1055,53 @@ async def blog_widget():
         "uptime": sys_data["uptime"],
         "memory_engine": mem_eng,
     }
+
+
+# ── Blog Widget SSE Stream ───────────────────────────────────────────
+
+@app.get("/api/blog-stream")
+async def blog_stream(request: Request):
+    """SSE endpoint for blog sidebar widget — pushes blog-widget format every N seconds."""
+
+    async def event_generator():
+        interval = float(request.query_params.get("interval", "5"))
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                sys_data = collect_system()
+                mem_eng = await collect_tdai_memory_engine()
+                monthly = await collect_monthly_traffic()
+                io = _sample_io()
+                payload = {
+                    "cpu": {
+                        "cores": sys_data["cpu"]["per_core"],
+                        "percent": sys_data["cpu"]["percent"],
+                        "load": sys_data["cpu"]["load"],
+                    },
+                    "memory": {
+                        "percent": sys_data["memory"]["percent"],
+                        "used_gb": round(sys_data["memory"]["used"] / 1073741824, 1),
+                        "total_gb": round(sys_data["memory"]["total"] / 1073741824, 0),
+                    },
+                    "disk": {
+                        "percent": sys_data["disk"]["percent"],
+                        "used": sys_data["disk"]["used"],
+                        "total": sys_data["disk"]["total"],
+                    },
+                    "net": {
+                        "download_per_sec": io["net_down_bps"],
+                    },
+                    "monthly_traffic": monthly,
+                    "uptime": sys_data["uptime"],
+                    "memory_engine": mem_eng,
+                }
+                yield {"event": "blog-metrics", "data": json.dumps(payload, ensure_ascii=False)}
+            except Exception as e:
+                yield {"event": "error", "data": str(e)}
+            await asyncio.sleep(interval)
+
+    return EventSourceResponse(event_generator())
 
 
 # ── SSE Real-time Stream ───────────────────────────────────────────
