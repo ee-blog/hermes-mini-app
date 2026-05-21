@@ -81,6 +81,20 @@ static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
+# ── Favicon ────────────────────────────────────────────────────────
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Serve favicon from static directory."""
+    favicon_path = static_dir / "favicon.ico"
+    if favicon_path.is_file():
+        return FileResponse(
+            favicon_path,
+            media_type="image/x-icon",
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    raise HTTPException(status_code=404)
+
+
 # ── Helpers ────────────────────────────────────────────────────────
 
 def get_user_env() -> dict:
