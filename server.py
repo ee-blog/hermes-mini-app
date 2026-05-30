@@ -518,7 +518,7 @@ async def network_stats():
 
 # ── OCI Cost (cached) ──────────────────────────────────────────────
 
-_GLOBAL_OCI_CACHE = {"data": None, "ts": 0.0, "prev_total": None}
+_GLOBAL_OCI_CACHE = {"data": None, "ts": 0.0}
 _OCI_TTL = 3600  # 1 hour — OCI billing data updates infrequently
 
 @app.get("/api/oci/cost")
@@ -569,17 +569,30 @@ async def oci_cost():
             })
 
         cur_total = round(total, 2)
-        prev = _GLOBAL_OCI_CACHE.get("prev_total")
-        delta = round(cur_total - prev, 2) if prev is not None else 0.0
+        # ── Yesterday's cost (DAILY granularity) ──
+        yesterday = today.replace(hour=0, minute=0, second=0, microsecond=0) - __import__("datetime").timedelta(days=1)
+        yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday_end = today.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        yd_query = oci_sdk.usage_api.models.RequestSummarizedUsagesDetails(
+            tenant_id=tenancy,
+            time_usage_started=yesterday_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            time_usage_ended=yesterday_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            granularity="DAILY",
+            group_by=["service"],
+        )
+        yd_result = client.request_summarized_usages(yd_query)
+        yesterday_total = round(sum(item.computed_amount for item in yd_result.data.items), 2)
+
         data = {
             "enabled": True,
             "period": start.strftime("%Y-%m"),
             "currency": currency,
             "total": cur_total,
-            "delta": delta,
+            "yesterday": yesterday_total,
             "services": services,
         }
-        _GLOBAL_OCI_CACHE.update({"data": data, "ts": now, "prev_total": cur_total})
+        _GLOBAL_OCI_CACHE.update({"data": data, "ts": now})
         return data
     except Exception as e:
         # Return stale cache if available, otherwise show short error

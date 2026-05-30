@@ -133,8 +133,8 @@ function renderMonitor(data) {
           `<div class="tr"><span>${esc(s.service)}</span><span>${s.amount.toFixed(2)} ${cur}</span></div>`
         ).join('');
         let totalLine = `<div class="tr" style="font-weight:600;border-top:1px solid rgba(255,255,255,0.1)"><span>💰 总计</span><span style="color:var(--accent)">${oci.total.toFixed(2)} ${cur}</span></div>`;
-        if (oci.delta !== null && oci.delta !== undefined && oci.delta >= 0) {
-          totalLine += `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📈 较上次</span><span>+${oci.delta.toFixed(2)} ${cur}</span></div>`;
+        if (oci.yesterday !== null && oci.yesterday !== undefined) {
+          totalLine += `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📅 昨日</span><span>${oci.yesterday.toFixed(2)} ${cur}</span></div>`;
         }
         $('oci-card').innerHTML = rows +
           totalLine +
