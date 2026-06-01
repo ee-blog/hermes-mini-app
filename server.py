@@ -18,6 +18,7 @@ from datetime import datetime
 
 import psutil
 import httpx
+import yaml
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -126,6 +127,69 @@ async def arun(cmd: list[str], **kw) -> tuple[int, str, str]:
         await proc.wait()
         raise TimeoutError(f"Command timed out after {timeout}s: {' '.join(cmd)}")
     return proc.returncode or 0, stdout.decode(), stderr.decode()
+
+
+# ── Gateway config loader (tdai-gateway.yaml) ───────────────────────
+# 用途：避免 vector/retrieval/vlm 卡片硬编码 LLM/embedding 配置。
+# LLM 切换时只需改 Gateway 自己的 yaml，Mini App 自动跟随（彻底杜绝 3 次复发）。
+_GATEWAY_YAML = "/home/ubuntu/tdai-gateway/tdai-gateway.yaml"
+_GATEWAY_CFG_CACHE = {"data": None, "ts": 0.0}
+_GATEWAY_CFG_TTL = 5.0  # 秒；切换配置后最多 5s 生效
+
+
+def _provider_from_baseurl(base_url: str) -> str:
+    """从 baseUrl 推断 provider 友好名（用于前端显示）。"""
+    if not base_url:
+        return "未知"
+    url = base_url.lower()
+    if "lkeap" in url or "tencent" in url:
+        return "Tencent Coding"
+    if "googleapis" in url or "gemini" in url:
+        return "Gemini"
+    if "openai.com" in url:
+        return "OpenAI"
+    if "anthropic" in url:
+        return "Anthropic"
+    # 兜底：返回域名主体
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(base_url).hostname or base_url
+        return host.split(".")[-2].capitalize() if "." in host else host
+    except Exception:
+        return "未知"
+
+
+def load_gateway_config() -> dict:
+    """读 tdai-gateway.yaml，5 秒缓存。返回结构：
+    {
+        "llm": {"model": str, "provider": str},
+        "embedding": {"model": str, "provider": str, "dimensions": int|None},
+    }
+    失败时返回空 dict。
+    """
+    global _GATEWAY_CFG_CACHE
+    now = time.time()
+    if _GATEWAY_CFG_CACHE["data"] is not None and now - _GATEWAY_CFG_CACHE["ts"] < _GATEWAY_CFG_TTL:
+        return _GATEWAY_CFG_CACHE["data"]
+    result = {}
+    try:
+        with open(_GATEWAY_YAML, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        llm = cfg.get("llm") or {}
+        emb = (cfg.get("memory") or {}).get("embedding") or {}
+        result["llm"] = {
+            "model": llm.get("model", ""),
+            "provider": _provider_from_baseurl(llm.get("baseUrl", "")),
+        }
+        result["embedding"] = {
+            "model": emb.get("model", ""),
+            "provider": _provider_from_baseurl(emb.get("baseUrl", "")),
+            "dimensions": emb.get("dimensions"),
+        }
+    except Exception:
+        pass
+    _GATEWAY_CFG_CACHE = {"data": result, "ts": now}
+    return result
 
 
 def get_client_ip(request: Request) -> str:
@@ -535,62 +599,62 @@ async def oci_cost():
 
     try:
         import oci as oci_sdk
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
+        from collections import defaultdict
 
         oci_config = oci_sdk.config.from_file(cfg.OCI_CONFIG)
         tenancy = oci_config["tenancy"]
         client = oci_sdk.usage_api.UsageapiClient(oci_config)
 
-        today = datetime.now(timezone.utc)
-        start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = today.replace(hour=0, minute=0, second=0, microsecond=0)
+        # ── Time anchors (Beijing time) ──
+        BJ = timezone(timedelta(hours=8))
+        now_utc = datetime.now(timezone.utc)
+        bj_now = now_utc.astimezone(BJ)
+        bj_today = bj_now.date()
+        bj_yesterday = bj_today - timedelta(days=1)
+        bj_month_start_date = bj_today.replace(day=1)
+        bj_period = f"{bj_month_start_date.year}-{bj_month_start_date.month:02d}"
+
+        # ── Single DAILY query covering this month + buffer ──
+        # Start: 1st of this month (UTC 0:00, integer hour required by OCI API)
+        # End:   tomorrow 0:00 UTC (guarantees start < end, covers today fully)
+        start = datetime(bj_month_start_date.year, bj_month_start_date.month, 1, tzinfo=timezone.utc)
+        end = (now_utc + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        if end <= start:
+            end = start + timedelta(days=1)  # 兜底: 6/1 UTC 时 start==end, 推后 1 天
 
         query = oci_sdk.usage_api.models.RequestSummarizedUsagesDetails(
             tenant_id=tenancy,
             time_usage_started=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
             time_usage_ended=end.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            granularity="MONTHLY",
-            group_by=["service"],
-        )
-
-        result = client.request_summarized_usages(query)
-        items = result.data.items
-        services = []
-        total = 0.0
-        currency = "USD"
-        for item in items:
-            amt = round(item.computed_amount, 4)
-            total += item.computed_amount
-            if item.currency:
-                currency = item.currency
-            services.append({
-                "service": item.service or "Unknown",
-                "amount": amt,
-            })
-
-        cur_total = round(total, 2)
-        # ── Yesterday's cost (DAILY granularity) ──
-        yesterday = today.replace(hour=0, minute=0, second=0, microsecond=0) - __import__("datetime").timedelta(days=1)
-        yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-        yesterday_end = today.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        yd_query = oci_sdk.usage_api.models.RequestSummarizedUsagesDetails(
-            tenant_id=tenancy,
-            time_usage_started=yesterday_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            time_usage_ended=yesterday_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
             granularity="DAILY",
             group_by=["service"],
         )
-        yd_result = client.request_summarized_usages(yd_query)
-        yesterday_total = round(sum(item.computed_amount for item in yd_result.data.items), 2)
+        result = client.request_summarized_usages(query)
+        items = result.data.items
+
+        # ── Aggregate by UTC day ──
+        # OCI DAILY slice = UTC natural day [D 0:00, D+1 0:00)
+        # UTC 6/1 0:00–6/2 0:00 ≈ Beijing 6/1 8:00–6/2 8:00
+        # Off by 8h but doesn't cross day boundary in practice, accept as "昨天"
+        by_date = defaultdict(float)
+        currency = "SGD"
+        for it in items:
+            d = it.time_usage_started.date()  # UTC date
+            by_date[d] += it.computed_amount
+            if it.currency:
+                currency = it.currency
+
+        yesterday_total = round(by_date.get(bj_yesterday, 0.0), 2)
+        month_total = round(sum(amt for d, amt in by_date.items() if d >= bj_month_start_date), 2)
 
         data = {
             "enabled": True,
-            "period": start.strftime("%Y-%m"),
+            "period": bj_period,
             "currency": currency,
-            "total": cur_total,
-            "yesterday": yesterday_total,
-            "services": services,
+            "total": month_total,                        # 本月累计
+            "yesterday": yesterday_total,                # 昨日 (北京时区)
+            "yesterday_date": bj_yesterday.isoformat(),  # YYYY-MM-DD (北京时区)
         }
         _GLOBAL_OCI_CACHE.update({"data": data, "ts": now})
         return data
@@ -697,22 +761,26 @@ async def hermes_engines():
         result["memory"]["status"] = "offline"
 
     # 3. Vector Engine & 4. Local Retrieval — from TencentDB Gateway
+    # LLM/embedding 配置从 tdai-gateway.yaml 动态读取，避免硬编码漂移
+    gw_cfg = load_gateway_config()
+    emb_cfg = gw_cfg.get("embedding") or {}
+    llm_cfg = gw_cfg.get("llm") or {}
     try:
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.get("http://127.0.0.1:8420/health")
             if r.status_code == 200:
                 data = r.json()
-                # Vector engine status (embedding: gemini-embedding-2 via Gemini API)
+                # Vector engine status
                 result["vector"] = {
-                    "provider": "Gemini",
-                    "model": "gemini-embedding-2",
-                    "dimension": "3072",
+                    "provider": emb_cfg.get("provider") or "未知",
+                    "model": emb_cfg.get("model") or "未知",
+                    "dimension": str(emb_cfg.get("dimensions") or "未知"),
                     "active": data.get("stores", {}).get("embeddingService", False),
                 }
-                # Retrieval status
+                # Retrieval status (用 LLM 配置；v2.0 后 Gateway 主对话 LLM 即用于 recall)
                 result["retrieval"] = {
-                    "provider": "MiniMax",
-                    "model": "MiniMax-M2.5",
+                    "provider": llm_cfg.get("provider") or "未知",
+                    "model": llm_cfg.get("model") or "未知",
                     "active": data.get("stores", {}).get("vectorStore", False),
                 }
     except Exception:
@@ -725,17 +793,21 @@ async def hermes_engines():
 @app.get("/api/hermes/local-models")
 async def local_models_status():
     """Real-time status for memory backend models."""
+    # 从 tdai-gateway.yaml 动态读取 LLM/embedding 配置（避免硬编码漂移）
+    gw_cfg = load_gateway_config()
+    emb_cfg = gw_cfg.get("embedding") or {}
+    llm_cfg = gw_cfg.get("llm") or {}
     result = {
         "embedding": {
-            "model": "gemini-embedding-2",
-            "provider": "Gemini",
+            "model": emb_cfg.get("model") or "未知",
+            "provider": emb_cfg.get("provider") or "未知",
             "status": "offline",
-            "dimension": "3072",
+            "dimension": str(emb_cfg.get("dimensions") or "未知"),
             "uptime_sec": None,
         },
         "vlm": {
-            "model": "glm-5",
-            "provider": "Tencent Coding",
+            "model": llm_cfg.get("model") or "未知",
+            "provider": llm_cfg.get("provider") or "未知",
             "status": "offline",
             "gateway_uptime": None,
             "gateway_version": None,

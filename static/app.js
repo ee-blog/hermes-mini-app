@@ -125,20 +125,15 @@ function renderMonitor(data) {
     if (oci) {
       if (oci.enabled === false) {
         $('oci-card').innerHTML = '<div class="tr"><span>☁️ OCI</span><span style="color:var(--hint);font-size:11px">未配置</span></div>';
-      } else if (oci.error && !oci.services) {
+      } else if (oci.error && oci.total === undefined) {
         $('oci-card').innerHTML = `<div class="tr"><span>☁️ OCI</span><span style="color:var(--danger);font-size:11px">${esc(oci.error)}</span></div>`;
       } else {
-        const cur = oci.currency || 'USD';
-        const rows = (oci.services||[]).map(s =>
-          `<div class="tr"><span>${esc(s.service)}</span><span>${s.amount.toFixed(2)} ${cur}</span></div>`
-        ).join('');
-        let totalLine = `<div class="tr" style="font-weight:600;border-top:1px solid rgba(255,255,255,0.1)"><span>💰 总计</span><span style="color:var(--accent)">${oci.total.toFixed(2)} ${cur}</span></div>`;
-        if (oci.yesterday !== null && oci.yesterday !== undefined) {
-          totalLine += `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📅 昨日</span><span>${oci.yesterday.toFixed(2)} ${cur}</span></div>`;
-        }
-        $('oci-card').innerHTML = rows +
-          totalLine +
-          `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>📅 ${oci.period}</span><span>🔄 本月至今</span></div>`;
+        const cur = oci.currency || 'SGD';
+        const yd = (oci.yesterday !== null && oci.yesterday !== undefined) ? oci.yesterday : 0;
+        const ydDate = oci.yesterday_date || '';
+        $('oci-card').innerHTML =
+          `<div class="tr" style="font-weight:600"><span>📅 昨日 ${esc(ydDate.slice(5))}</span><span style="color:var(--accent);font-size:14px">${yd.toFixed(2)} ${cur}</span></div>` +
+          `<div class="tr" style="font-size:10px;color:var(--hint);border:none"><span>💰 本月 ${esc(oci.period || '')}</span><span>${oci.total.toFixed(2)} ${cur}</span></div>`;
       }
     }
   } catch(e) { console.warn('[renderMonitor] OCI failed:', e); }
