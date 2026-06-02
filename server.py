@@ -77,9 +77,44 @@ app = FastAPI(title="Hermes Mini App v2", version="2.0.1", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Serve static files
+# ⚠️ 关键: 不用 app.mount(StaticFiles), 因为它不发 Cache-Control,
+# EdgeOne 默认给所有响应加 max-age=31536000, 浏览器/TG WebView 缓存 1 年,
+# 即使 index.html 升 ?v=N 也无法绕过.
+# 自定义路由强制 no-store, 让浏览器/CDN 每次都重新校验.
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
+
+# 保留 mount 兼容某些路由 (favicon 等), 但主要走自定义路由
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+# ── Static asset override (no-cache headers) ──────────────────────
+# 拦截 /static/app.js, /static/style.css 等关键文件, 返回 no-store 头
+# 浏览器/TG 每次都重新请求, ?v=N 版本号立即生效
+import mimetypes
+_STATIC_NO_CACHE_EXTS = {".js", ".css", ".html", ".json"}
+
+@app.get("/static/{file_path:path}", include_in_schema=False)
+async def static_no_cache(file_path: str):
+    """覆盖 StaticFiles mount: 关键资源强制 no-store 头."""
+    fp = (static_dir / file_path).resolve()
+    # 防路径穿越
+    if not str(fp).startswith(str(static_dir.resolve())):
+        raise HTTPException(404)
+    if not fp.is_file():
+        raise HTTPException(404)
+    ext = fp.suffix.lower()
+    media_type, _ = mimetypes.guess_type(str(fp))
+    if ext in _STATIC_NO_CACHE_EXTS:
+        headers = {
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+    else:
+        # 图片/字体可以缓存
+        headers = {"Cache-Control": "public, max-age=86400"}
+    return FileResponse(str(fp), media_type=media_type or "application/octet-stream", headers=headers)
 
 
 # ── Favicon ────────────────────────────────────────────────────────
@@ -696,15 +731,27 @@ async def hermes_platforms():
                 platforms[name] = m.group(1) == "configured"
     except Exception:
         pass
-    # Check QQ from config.yaml
-    config_path = Path(cfg.HERMES_HOME) / "config.yaml"
-    if config_path.exists():
-        content = config_path.read_text()
-        platforms["QQ"] = "qqbot:" in content and "enabled: true" in content
-    # Check 微信 from .env
+    # Check QQ: QQ is a native Hermes channel (gateway.platforms.qqbot.adapter),
+    # config lives in .env (QQ_APP_ID/QQ_CLIENT_SECRET), not config.yaml.
+    # Status = .env has QQ_APP_ID AND hermes-gateway process is running.
     env_path = Path(cfg.HERMES_HOME) / ".env"
-    if env_path.exists():
-        platforms["微信"] = "WEIXIN_TOKEN=" in env_path.read_text()
+    env_content = env_path.read_text() if env_path.exists() else ""
+    qq_token_set = "QQ_APP_ID=" in env_content
+    # Check 微信 from .env
+    if env_content:
+        platforms["微信"] = "WEIXIN_TOKEN=" in env_content
+    # QQ active = .env configured AND hermes-gateway process exists
+    if qq_token_set:
+        try:
+            import psutil
+            gateway_running = any(
+                "hermes_cli.main" in " ".join(p.info.get("cmdline") or [])
+                and "gateway" in " ".join(p.info.get("cmdline") or [])
+                for p in psutil.process_iter(["cmdline"])
+            )
+            platforms["QQ"] = gateway_running
+        except Exception:
+            platforms["QQ"] = False
 
     # Filter to known platforms only
     result = {k: v for k, v in platforms.items() if k in ("Telegram", "QQ", "微信")}
@@ -914,11 +961,22 @@ async def hermes_overview():
             if m: platforms[name] = m.group(1) == "configured"
     except Exception:
         pass
-    if config_text:
-        platforms["QQ"] = "qqbot:" in config_text and "enabled: true" in config_text
+    # QQ: native Hermes channel; config in .env, status = token set + gateway running
     env_path = Path(cfg.HERMES_HOME) / ".env"
-    if env_path.exists():
-        platforms["微信"] = "WEIXIN_TOKEN=" in env_path.read_text()
+    env_content = env_path.read_text() if env_path.exists() else ""
+    if env_content:
+        platforms["微信"] = "WEIXIN_TOKEN=" in env_content
+    if "QQ_APP_ID=" in env_content:
+        try:
+            import psutil
+            gateway_running = any(
+                "hermes_cli.main" in " ".join(p.info.get("cmdline") or [])
+                and "gateway" in " ".join(p.info.get("cmdline") or [])
+                for p in psutil.process_iter(["cmdline"])
+            )
+            platforms["QQ"] = gateway_running
+        except Exception:
+            platforms["QQ"] = False
     data["platforms"] = {k: v for k, v in platforms.items() if k in ("Telegram", "QQ", "微信")}
 
     # 3. Memory (TencentDB)
