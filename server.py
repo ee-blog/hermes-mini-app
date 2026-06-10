@@ -23,6 +23,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sse_starlette.sse import EventSourceResponse
 
 # ── Configuration ──────────────────────────────────────────────────
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Hermes Mini App v2", version="2.0.1", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Serve static files
 # ⚠️ 关键: 不用 app.mount(StaticFiles), 因为它不发 Cache-Control,
