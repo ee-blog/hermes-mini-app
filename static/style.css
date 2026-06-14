@@ -256,6 +256,33 @@ body {
 .neuron { position: absolute; font-size: 6px; color: rgba(139,92,246,0.5); animation: neuronBlink 2s ease-in-out infinite; }
 @keyframes neuronBlink{0%,100%{opacity:.2}50%{opacity:1;text-shadow:0 0 8px rgba(139,92,246,0.8)}}
 
+/* ── Pipeline Status Bar ─── */
+.pipeline-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 8px 12px; margin-top: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  font-size: 11px;
+}
+.pipeline-bar .pipe-label { font-weight: 600; color: var(--hint); white-space: nowrap; }
+.pipeline-bar .pipe-stats { display: flex; gap: 10px; align-items: center; }
+.pipeline-bar .pipe-ok { color: var(--success); }
+.pipeline-bar .pipe-fail { color: var(--danger, #ef4444); }
+.pipeline-bar .pipe-warn { color: var(--orange); }
+.pipeline-bar .pipe-queue {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 6px;
+  background: rgba(34,197,94,0.1); color: var(--success);
+}
+.pipeline-bar .pipe-queue.busy {
+  background: rgba(249,115,22,0.12); color: var(--orange);
+}
+.pipeline-bar .pipe-queue .pipe-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
+.pipeline-bar .pipe-queue.busy .pipe-dot { animation: hb 1s ease-in-out infinite; }
+
 /* ── Uptime Bar ─── */
 .uptime-bar {
   display: flex; align-items: center; justify-content: center; gap: 8px;

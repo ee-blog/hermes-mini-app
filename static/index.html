@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://api.eebk.com">
 <link rel="dns-prefetch" href="https://api.eebk.com">
 <script src="/static/telegram-web-app.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=33">
+<link rel="stylesheet" href="/static/style.css?v=34">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -264,6 +264,21 @@
       </div>
     </div>
   </div>
+  <!-- Pipeline Status Bar -->
+  <div class="pipeline-bar" id="pipeline-bar" style="display:none">
+    <span class="pipe-label">📦 管道</span>
+    <span class="pipe-stats">
+      <span class="pipe-ok">✓<span id="pipe-completed">--</span></span>
+      <span class="pipe-fail">✗<span id="pipe-failed">--</span></span>
+      <span class="pipe-queue" id="pipe-queue">
+        <span class="pipe-dot"></span>
+        <span id="pipe-queue-text">空闲</span>
+      </span>
+    </span>
+    <span class="pipe-warn" id="pipe-errors-wrap" style="display:none">
+      ⚠ 扫描错误 <span id="pipe-errors">0</span>
+    </span>
+  </div>
 </div>
 
 <!-- ══ Page: Ops ══ -->
@@ -320,6 +335,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=35"></script>
+<script src="/static/app.js?v=36"></script>
 </body>
 </html>

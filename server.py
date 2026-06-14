@@ -482,7 +482,7 @@ async def collect_tdai_memory_engine() -> dict:
     today = datetime.now().strftime("%Y-%m-%d")  # Beijing time for user-facing display
     result = {"today_writes": 0, "today_reads": 0, "total": 0}
 
-    # 1. Health check
+    # 1. Health check + pipeline stats extraction
     try:
         async with httpx.AsyncClient(timeout=5) as c:
             r = await c.get(f"{gateway_url}/health")
@@ -490,8 +490,49 @@ async def collect_tdai_memory_engine() -> dict:
                 data = r.json()
                 if not data.get("stores", {}).get("vectorStore"):
                     return result
+
+                # Extract pipeline worker + scanner stats from /health.services (v1.0.0+)
+                services = data.get("services", {})
+                pw = services.get("pipelineWorker", {})
+                ts = services.get("timerScanner", {})
+                result["pipeline"] = {
+                    "tasks_completed": pw.get("tasksCompleted", 0),
+                    "tasks_failed": pw.get("tasksFailed", 0),
+                    "tasks_retried": pw.get("tasksRetried", 0),
+                    "dead_letters": pw.get("deadLetterCount", 0),
+                    "tasks_enqueued": ts.get("tasksEnqueued", 0),
+                    "scan_errors": ts.get("scanErrors", 0),
+                    "scans_completed": ts.get("scansCompleted", 0),
+                    "state_backend": services.get("stateBackend", "unknown"),
+                }
     except Exception:
         return result
+
+    # 1b. Real-time queue status via v2 pipeline/status (L1/L2/L3 depth)
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            qr = await c.post(
+                f"{gateway_url}/v2/pipeline/status",
+                headers={
+                    "Authorization": "Bearer mini-app-monitor",
+                    "x-tdai-service-id": "default",
+                    "Content-Type": "application/json",
+                },
+                json={},
+            )
+            if qr.status_code == 200:
+                qdata = qr.json().get("data", {})
+                queue = {}
+                for layer in ("l1", "l2", "l3"):
+                    ls = qdata.get(layer, {})
+                    queue[layer] = {
+                        "queued": ls.get("queued", 0),
+                        "running": ls.get("running", 0),
+                        "idle": ls.get("idle", True),
+                    }
+                result["pipeline"]["queue"] = queue
+    except Exception:
+        pass
 
     # 2. SQLite stats (TencentDB schema)
     if not db_path.exists():
@@ -764,13 +805,15 @@ async def hermes_platforms():
 async def hermes_memory():
     """Get memory stats from TencentDB Gateway."""
     data = await collect_tdai_memory_engine()
-    return {
+    resp = {
         "l1_count": data["total"],          # 结构化记忆数
         "l0_count": data.get("l0_count", 0), # 原始对话轮数
         "today_writes": data["today_writes"],
         "today_queries": data["today_reads"],
-        "week_recalls": data.get("week_recalls", 0)  # 本周检索次数
+        "week_recalls": data.get("week_recalls", 0),  # 本周检索次数
+        "pipeline": data.get("pipeline", {}),  # v1.0.0 管道状态
     }
+    return resp
 
 
 @app.get("/api/hermes/engines")
@@ -983,7 +1026,7 @@ async def hermes_overview():
 
     # 3. Memory (TencentDB)
     mem = await collect_tdai_memory_engine()
-    data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"]}
+    data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"], "pipeline": mem.get("pipeline", {})}
 
     # 4. Engines (all 4 — unified status badges)
     engines = {

@@ -200,6 +200,42 @@ function renderHermesData(d) {
     $('mem-count').textContent = d.memory.count ?? '--';
     $('mem-writes').textContent = d.memory.today_writes ?? 0;
     $('mem-queries').textContent = d.memory.today_queries ?? 0;
+
+    // Pipeline status (v1.0.0)
+    const pipe = d.memory.pipeline;
+    const pipeBar = $('pipeline-bar');
+    if (pipe && pipeBar) {
+      pipeBar.style.display = 'flex';
+      $('pipe-completed').textContent = pipe.tasks_completed ?? 0;
+      $('pipe-failed').textContent = pipe.tasks_failed ?? 0;
+
+      // Queue status from v2 pipeline/status
+      const q = pipe.queue;
+      const qEl = $('pipe-queue');
+      const qText = $('pipe-queue-text');
+      if (q && qEl && qText) {
+        const l1Busy = (q.l1 && (q.l1.queued > 0 || q.l1.running > 0));
+        const anyBusy = l1Busy || (q.l2 && (q.l2.queued > 0 || q.l2.running > 0)) || (q.l3 && (q.l3.queued > 0 || q.l3.running > 0));
+        if (anyBusy) {
+          qEl.className = 'pipe-queue busy';
+          const parts = [];
+          if (q.l1 && (q.l1.queued > 0 || q.l1.running > 0)) parts.push('L1:' + q.l1.running + '跑/' + q.l1.queued + '待');
+          if (q.l2 && (q.l2.queued > 0 || q.l2.running > 0)) parts.push('L2:' + q.l2.running + '跑/' + q.l2.queued + '待');
+          qText.textContent = parts.join(' ') || '处理中';
+        } else {
+          qEl.className = 'pipe-queue';
+          qText.textContent = '空闲';
+        }
+      }
+
+      // Scan errors (only show if > 0)
+      const errWrap = $('pipe-errors-wrap');
+      const errs = pipe.scan_errors ?? 0;
+      if (errWrap) {
+        errWrap.style.display = errs > 0 ? 'inline' : 'none';
+        $('pipe-errors').textContent = errs;
+      }
+    }
   }
 
   // Engines (all 4 unified)
