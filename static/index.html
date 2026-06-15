@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://api.eebk.com">
 <link rel="dns-prefetch" href="https://api.eebk.com">
 <script src="/static/telegram-web-app.js"></script>
-<link rel="stylesheet" href="/static/style.css?v=34">
+<link rel="stylesheet" href="/static/style.css?v=35">
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -264,20 +264,43 @@
       </div>
     </div>
   </div>
-  <!-- Pipeline Status Bar -->
-  <div class="pipeline-bar" id="pipeline-bar" style="display:none">
-    <span class="pipe-label">📦 管道</span>
-    <span class="pipe-stats">
-      <span class="pipe-ok">✓<span id="pipe-completed">--</span></span>
-      <span class="pipe-fail">✗<span id="pipe-failed">--</span></span>
-      <span class="pipe-queue" id="pipe-queue">
-        <span class="pipe-dot"></span>
-        <span id="pipe-queue-text">空闲</span>
-      </span>
-    </span>
-    <span class="pipe-warn" id="pipe-errors-wrap" style="display:none">
-      ⚠ 扫描错误 <span id="pipe-errors">0</span>
-    </span>
+  <!-- Pipeline Card -->
+  <div class="pipeline-card" id="pipeline-card" style="display:none">
+    <div class="pipe-header">
+      <span class="pipe-title">📦 记忆提取管道</span>
+      <span class="pipe-status" id="pipe-status"><span class="pipe-dot"></span>空闲</span>
+    </div>
+    <div class="pipe-body">
+      <div class="pipe-row">
+        <span class="pipe-metric"><span class="pipe-icon ok">✓</span>成功 <span id="pipe-completed" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon fail">✗</span>失败 <span id="pipe-failed" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon warn">⚡</span>重试 <span id="pipe-retried" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon dead">💀</span>死信 <span id="pipe-dead" class="pipe-num">--</span></span>
+      </div>
+      <div class="pipe-row">
+        <span class="pipe-metric"><span class="pipe-icon scan">🔍</span>扫描 <span id="pipe-scans" class="pipe-num">--</span> 次</span>
+        <span class="pipe-metric pipe-errs" id="pipe-errs-row" style="display:none">
+          <span class="pipe-icon err">⚠️</span>错误 <span id="pipe-errors" class="pipe-num">0</span>
+        </span>
+      </div>
+      <div class="pipe-queue" id="pipe-queue-section">
+        <div class="pipe-q-title">当前队列</div>
+        <div class="pipe-q-grid">
+          <div class="pipe-q-item" id="pipe-q-l1">
+            <span class="q-name">L1 深度提取</span>
+            <span class="q-stat"><span id="pipe-l1-run">0</span> 运行 / <span id="pipe-l1-que">0</span> 排队</span>
+          </div>
+          <div class="pipe-q-item" id="pipe-q-l2">
+            <span class="q-name">L2 场景聚合</span>
+            <span class="q-stat"><span id="pipe-l2-run">0</span> 运行 / <span id="pipe-l2-que">0</span> 排队</span>
+          </div>
+          <div class="pipe-q-item" id="pipe-q-l3">
+            <span class="q-name">L3 核心记忆</span>
+            <span class="q-stat"><span id="pipe-l3-run">0</span> 运行 / <span id="pipe-l3-que">0</span> 排队</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -335,6 +358,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=36"></script>
+<script src="/static/app.js?v=37"></script>
 </body>
 </html>
