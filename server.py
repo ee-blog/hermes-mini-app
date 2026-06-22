@@ -719,7 +719,7 @@ async def oci_cost():
         currency = "SGD"
         for it in items:
             d = it.time_usage_started.date()  # UTC date
-            by_date[d] += it.computed_amount
+            by_date[d] += it.computed_amount or 0.0
             if it.currency:
                 currency = it.currency
 
