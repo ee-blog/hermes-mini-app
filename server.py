@@ -169,7 +169,11 @@ async def arun(cmd: list[str], **kw) -> tuple[int, str, str]:
 # ── Gateway config loader (tdai-gateway.yaml) ───────────────────────
 # 用途：避免 vector/retrieval/vlm 卡片硬编码 LLM/embedding 配置。
 # LLM 切换时只需改 Gateway 自己的 yaml，Mini App 自动跟随（彻底杜绝 3 次复发）。
-_GATEWAY_YAML = "/home/ubuntu/tdai-gateway/tdai-gateway.yaml"
+# v2.0.0: Docker 部署后配置由 start-memory-core.sh 生成
+# 优先读 v2 路径，fallback 到 v1 旧路径
+_GATEWAY_YAML_V2 = "/home/ubuntu/TencentDB-Agent-Memory/deploy/global-images/.memory-core-config/tdai-gateway.yaml"
+_GATEWAY_YAML_V1 = "/home/ubuntu/tdai-gateway/tdai-gateway.yaml"
+_GATEWAY_YAML = _GATEWAY_YAML_V2 if os.path.exists(_GATEWAY_YAML_V2) else _GATEWAY_YAML_V1
 _GATEWAY_CFG_CACHE = {"data": None, "ts": 0.0}
 _GATEWAY_CFG_TTL = 5.0  # 秒；切换配置后最多 5s 生效
 
@@ -570,21 +574,22 @@ async def collect_tdai_memory_engine() -> dict:
         # Combined: L0 captures + L1 extractions
         raw_writes = l0_writes + l1_writes
 
-        # Today's reads: count "Recall completed" entries in syslog for today (CST)
+        # 2. Today's / week's reads: from Proxy Docker logs (v2.0.0)
+        #    v2 的记忆检索走 Proxy，日志在 docker logs tdai-proxy 中
+        #    grep injection.pipeline.done = 一次完整的记忆注入 = 一次检索
         try:
+            import subprocess
             today_cst = datetime.now().strftime("%Y-%m-%d")
-            cmd = f"grep 'Recall completed' /var/log/syslog | grep '{today_cst}' | wc -l"
-            raw_reads = int(subprocess.run(cmd, shell=True, capture_output=True, text=True).stdout.strip() or 0)
-        except Exception:
-            raw_reads = 0
-
-        # Week's reads: syslog total (syslog rotates weekly)
-        try:
-            cmd_total = "grep -c 'Recall completed' /var/log/syslog"
+            # v2: Proxy 日志中 injection.pipeline.done 表示一次记忆注入完成
+            cmd_today = f"docker logs tdai-proxy 2>&1 | grep 'injection.pipeline.done' | grep '{today_cst}' | wc -l"
+            raw_reads = int(subprocess.run(cmd_today, shell=True, capture_output=True, text=True).stdout.strip() or 0)
+            # Week: Proxy 容器启动以来的总量
+            cmd_total = "docker logs tdai-proxy 2>&1 | grep -c 'injection.pipeline.done'"
             week_reads = int(subprocess.run(cmd_total, shell=True, capture_output=True, text=True).stdout.strip() or 0)
         except Exception:
-            week_reads = raw_reads
-        
+            raw_reads = 0
+            week_reads = 0
+
         result["week_recalls"] = week_reads
 
         conn.close()
@@ -943,16 +948,13 @@ async def local_models_status():
     except Exception:
         pass
 
-    # Get memory stats from syslog (syslog rotates weekly)
+    # Get memory stats from Proxy Docker logs (v2.0.0)
     try:
         import subprocess
-        from datetime import datetime
-        # Today's recalls
         today_cst = datetime.now().strftime("%Y-%m-%d")
-        cmd_today = f"grep 'Recall completed' /var/log/syslog | grep '{today_cst}' | wc -l"
+        cmd_today = f"docker logs tdai-proxy 2>&1 | grep 'injection.pipeline.done' | grep '{today_cst}' | wc -l"
         today_queries = int(subprocess.run(cmd_today, shell=True, capture_output=True, text=True).stdout.strip() or 0)
-        # Week's recalls (syslog total)
-        cmd_week = "grep -c 'Recall completed' /var/log/syslog"
+        cmd_week = "docker logs tdai-proxy 2>&1 | grep -c 'injection.pipeline.done'"
         week_queries = int(subprocess.run(cmd_week, shell=True, capture_output=True, text=True).stdout.strip() or 0)
         result["vlm"]["today_queries"] = today_queries
         result["vlm"]["total_queries"] = week_queries
