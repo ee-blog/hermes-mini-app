@@ -473,13 +473,78 @@ def _save_tdai_snapshot(data: dict):
         pass
 
 
+# ── Proxy injection stats cache (60s TTL) ────────────────────────────
+# Eliminates per-5s `docker logs tdai-proxy | grep` subprocess that grows
+# slower as container log volume increases.
+_PROXY_INJECTION_CACHE = {"data": None, "ts": 0.0}
+_PROXY_INJECTION_TTL = 60  # seconds
+
+
+async def _get_proxy_injection_stats() -> tuple[int, int]:
+    """Return (today_count, total_count) of injection.pipeline.done from Proxy logs.
+
+    Cached for 60s to avoid spawning docker logs subprocess on every SSE tick.
+    """
+    now = time.time()
+    cached = _PROXY_INJECTION_CACHE["data"]
+    if cached and now - _PROXY_INJECTION_CACHE["ts"] < _PROXY_INJECTION_TTL:
+        return cached
+
+    today_cst = datetime.now().strftime("%Y-%m-%d")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "logs", "tdai-proxy",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await proc.communicate()
+        lines = stdout.decode("utf-8", errors="replace")
+        total = sum(1 for l in lines.splitlines() if "injection.pipeline.done" in l)
+        today = sum(1 for l in lines.splitlines() if "injection.pipeline.done" in l and today_cst in l)
+    except Exception:
+        total = 0
+        today = 0
+
+    _PROXY_INJECTION_CACHE["data"] = (today, total)
+    _PROXY_INJECTION_CACHE["ts"] = now
+    return (today, total)
+
+
+def _count_scene_blocks() -> int:
+    """Count L2 scene block files (topic aggregations)."""
+    try:
+        d = Path.home() / ".memory-tencentdb/memory-tdai/scene_blocks"
+        if d.is_dir():
+            return len([f for f in d.iterdir() if f.is_file() and f.suffix == ".md"])
+    except Exception:
+        pass
+    return 0
+
+
+def _get_persona_info() -> dict:
+    """Get L3 persona file metadata."""
+    try:
+        p = Path.home() / ".memory-tencentdb/memory-tdai/persona.md"
+        if p.is_file():
+            st = p.stat()
+            return {
+                "size_kb": round(st.st_size / 1024, 1),
+                "updated": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d"),
+            }
+    except Exception:
+        pass
+    return {}
+
+
 async def collect_tdai_memory_engine() -> dict:
     """Get memory engine stats from TencentDB Gateway + SQLite.
 
     total        — L1 memory records count
     today_writes — L0 captures + L1 extractions today
-    today_reads  — Recall completed count from syslog today (CST)
-    week_recalls — Recall completed count from syslog this week
+    today_reads  — injection count today (cached 60s)
+    week_recalls — total injection count since container start (cached 60s)
+    l2_scenes    — L2 scene block file count
+    l3_persona   — L3 persona.md metadata
     """
     gateway_url = "http://127.0.0.1:8420"
     db_path = Path.home() / ".memory-tencentdb/memory-tdai/vectors.db"
@@ -574,32 +639,20 @@ async def collect_tdai_memory_engine() -> dict:
         # Combined: L0 captures + L1 extractions
         raw_writes = l0_writes + l1_writes
 
-        # 2. Today's / week's reads: from Proxy Docker logs (v2.0.0)
-        #    v2 的记忆检索走 Proxy，日志在 docker logs tdai-proxy 中
-        #    grep injection.pipeline.done = 一次完整的记忆注入 = 一次检索
-        try:
-            import subprocess
-            today_cst = datetime.now().strftime("%Y-%m-%d")
-            # v2: Proxy 日志中 injection.pipeline.done 表示一次记忆注入完成
-            cmd_today = f"docker logs tdai-proxy 2>&1 | grep 'injection.pipeline.done' | grep '{today_cst}' | wc -l"
-            raw_reads = int(subprocess.run(cmd_today, shell=True, capture_output=True, text=True).stdout.strip() or 0)
-            # Week: Proxy 容器启动以来的总量
-            cmd_total = "docker logs tdai-proxy 2>&1 | grep -c 'injection.pipeline.done'"
-            week_reads = int(subprocess.run(cmd_total, shell=True, capture_output=True, text=True).stdout.strip() or 0)
-        except Exception:
-            raw_reads = 0
-            week_reads = 0
-
-        result["week_recalls"] = week_reads
-
         conn.close()
-
-        # Direct SQL filter already gives today's count, no snapshot needed
         result["today_writes"] = raw_writes
-        result["today_reads"] = raw_reads
 
     except Exception:
         pass
+
+    # 3. Injection stats from Proxy Docker logs (60s cached, no per-tick subprocess)
+    raw_reads, week_reads = await _get_proxy_injection_stats()
+    result["today_reads"] = raw_reads
+    result["week_recalls"] = week_reads
+
+    # 4. L2/L3 layer stats (filesystem, cheap)
+    result["l2_scenes"] = _count_scene_blocks()
+    result["l3_persona"] = _get_persona_info() or {}
 
     return result
 
@@ -816,6 +869,8 @@ async def hermes_memory():
         "today_writes": data["today_writes"],
         "today_queries": data["today_reads"],
         "week_recalls": data.get("week_recalls", 0),  # 本周检索次数
+        "l2_scenes": data.get("l2_scenes", 0),         # L2 场景聚合数
+        "l3_persona": data.get("l3_persona", {}),       # L3 人格画像元数据
         "pipeline": data.get("pipeline", {}),  # v1.0.0 管道状态
     }
     return resp
@@ -948,16 +1003,11 @@ async def local_models_status():
     except Exception:
         pass
 
-    # Get memory stats from Proxy Docker logs (v2.0.0)
+    # Get memory stats from Proxy injection logs (60s cached, shared with collect_tdai_memory_engine)
     try:
-        import subprocess
-        today_cst = datetime.now().strftime("%Y-%m-%d")
-        cmd_today = f"docker logs tdai-proxy 2>&1 | grep 'injection.pipeline.done' | grep '{today_cst}' | wc -l"
-        today_queries = int(subprocess.run(cmd_today, shell=True, capture_output=True, text=True).stdout.strip() or 0)
-        cmd_week = "docker logs tdai-proxy 2>&1 | grep -c 'injection.pipeline.done'"
-        week_queries = int(subprocess.run(cmd_week, shell=True, capture_output=True, text=True).stdout.strip() or 0)
+        today_queries, total_queries = await _get_proxy_injection_stats()
         result["vlm"]["today_queries"] = today_queries
-        result["vlm"]["total_queries"] = week_queries
+        result["vlm"]["total_queries"] = total_queries
     except Exception:
         result["vlm"]["today_queries"] = 0
         result["vlm"]["total_queries"] = 0
@@ -1028,7 +1078,7 @@ async def hermes_overview():
 
     # 3. Memory (TencentDB)
     mem = await collect_tdai_memory_engine()
-    data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"], "pipeline": mem.get("pipeline", {})}
+    data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"], "l2_scenes": mem.get("l2_scenes", 0), "l3_persona": mem.get("l3_persona", {}), "pipeline": mem.get("pipeline", {})}
 
     # 4. Engines (all 4 — unified status badges)
     engines = {

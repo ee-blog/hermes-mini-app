@@ -258,6 +258,25 @@ function renderHermesData(d) {
     }
   }
 
+  // Memory Layers Card (L0/L1/L2/L3)
+  if (d.memory) {
+    const layersCard = $('memory-layers-card');
+    if (layersCard) {
+      layersCard.style.display = 'flex';
+      const el0 = $('layer-l0'); if (el0) el0.textContent = d.memory.l0_count ?? d.memory.count ?? '--';
+      const el1 = $('layer-l1'); if (el1) el1.textContent = d.memory.l1_count ?? d.memory.count ?? '--';
+      const el2 = $('layer-l2'); if (el2) el2.textContent = d.memory.l2_scenes ?? '--';
+      // L3 persona
+      const persona = d.memory.l3_persona || {};
+      const el3 = $('layer-l3'); if (el3) el3.textContent = persona.size_kb ? persona.size_kb + 'KB' : '--';
+      const personaRow = $('layer-persona-row');
+      if (personaRow && persona.updated) {
+        personaRow.style.display = 'flex';
+        $('layer-persona-info').textContent = '画像更新: ' + persona.updated;
+      }
+    }
+  }
+
   // Engines (all 4 unified)
   if (d.engines) {
     const ed = d.engines;

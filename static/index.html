@@ -302,12 +302,31 @@
       </div>
     </div>
   </div>
+  <!-- Memory Layers Card -->
+  <div class="pipeline-card" id="memory-layers-card" style="display:none">
+    <div class="pipe-header">
+      <span class="pipe-title">📊 记忆层级</span>
+    </div>
+    <div class="pipe-body">
+      <div class="pipe-row" style="flex-wrap:wrap;gap:12px">
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(99,102,241,0.2);color:#818cf8">L0</span>
+          对话 <span id="layer-l0" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(34,197,94,0.2);color:var(--success)">L1</span>
+          记忆 <span id="layer-l1" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(245,158,11,0.2);color:var(--orange)">L2</span>
+          场景 <span id="layer-l2" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(239,68,68,0.2);color:var(--danger,red)">L3</span>
+          画像 <span id="layer-l3" class="pipe-num">--</span></span>
+      </div>
+      <div class="pipe-row" id="layer-persona-row" style="display:none;font-size:11px;color:var(--hint)">
+        <span id="layer-persona-info"></span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ Page: Ops ══ -->
 <div id="page-ops" class="page">
-
-  <!-- Login gate -->
   <div id="ops-login" class="card" style="display:none;text-align:center;padding:24px">
     <div style="font-size:14px;font-weight:600;margin-bottom:16px">🔒 访问验证</div>
     <div style="font-size:12px;color:var(--hint);margin-bottom:16px" id="ops-msg">检测中...</div>
@@ -358,6 +377,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=37"></script>
+<script src="/static/app.js?v=38"></script>
 </body>
 </html>
