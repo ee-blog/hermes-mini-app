@@ -14,7 +14,7 @@ import time
 import shutil
 from pathlib import Path
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import psutil
 import httpx
@@ -451,81 +451,82 @@ async def _get_oci_network_usage() -> dict | None:
         return None
 
 
-_TDAI_SNAPSHOT_PATH = Path(os.path.expanduser("~/.memory-tencentdb/.daily_snapshot.json"))
+# ── Hermes state.db conversation stats cache (30s TTL) ──────────────
+# Source of truth for memory-engine card since 2026-08-19 (TencentDB data path retired).
+_HERMES_STATE_CACHE = {"data": None, "ts": 0.0}
+_HERMES_STATE_TTL = 30  # seconds
 
 
-def _load_tdai_snapshot() -> dict:
-    """Load the daily snapshot for TencentDB; returns {date, writes, reads} or None."""
-    try:
-        if _TDAI_SNAPSHOT_PATH.exists():
-            return json.loads(_TDAI_SNAPSHOT_PATH.read_text())
-    except Exception:
-        pass
-    return None
+def _query_hermes_state() -> dict:
+    """Read conversation stats from Hermes state.db (read-only).
 
-
-def _save_tdai_snapshot(data: dict):
-    """Persist the daily snapshot for TencentDB."""
-    try:
-        _TDAI_SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _TDAI_SNAPSHOT_PATH.write_text(json.dumps(data))
-    except Exception:
-        pass
-
-
-# ── Proxy injection stats cache (60s TTL) ────────────────────────────
-# Eliminates per-5s `docker logs tdai-proxy | grep` subprocess that grows
-# slower as container log volume increases.
-_PROXY_INJECTION_CACHE = {"data": None, "ts": 0.0}
-_PROXY_INJECTION_TTL = 60  # seconds
-
-
-async def _get_proxy_injection_stats() -> tuple[int, int]:
-    """Return (today_count, total_count) of injection.pipeline.done from Proxy logs.
-
-    Cached for 60s to avoid spawning docker logs subprocess on every SSE tick.
+    total        — lifetime message count (memory pool)
+    today_writes — messages recorded today (Beijing time)
+    today_reads  — LLM API calls today (Beijing time)
+    calls_24h    — LLM API calls in last 24h
+    l0_count     — lifetime session count
     """
     now = time.time()
-    cached = _PROXY_INJECTION_CACHE["data"]
-    if cached and now - _PROXY_INJECTION_CACHE["ts"] < _PROXY_INJECTION_TTL:
+    cached = _HERMES_STATE_CACHE["data"]
+    if cached and now - _HERMES_STATE_CACHE["ts"] < _HERMES_STATE_TTL:
         return cached
 
-    today_cst = datetime.now().strftime("%Y-%m-%d")
+    result = {
+        "total": 0, "today_writes": 0, "today_reads": 0,
+        "calls_24h": 0, "l0_count": 0,
+    }
+    db_path = Path.home() / ".hermes/state.db"
+    if not db_path.exists():
+        return result
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "logs", "tdai-proxy",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+        import sqlite3
+        bj = timezone(timedelta(hours=8))
+        today_start = datetime.now(bj).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).timestamp()
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM messages")
+        result["total"] = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM messages WHERE timestamp >= ?", (today_start,))
+        result["today_writes"] = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM sessions")
+        result["l0_count"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COALESCE(SUM(api_call_count),0) FROM sessions WHERE started_at >= ?",
+            (today_start,),
         )
-        stdout, _ = await proc.communicate()
-        lines = stdout.decode("utf-8", errors="replace")
-        total = sum(1 for l in lines.splitlines() if "injection.pipeline.done" in l)
-        today = sum(1 for l in lines.splitlines() if "injection.pipeline.done" in l and today_cst in l)
+        result["today_reads"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COALESCE(SUM(api_call_count),0) FROM sessions WHERE started_at >= ?",
+            (now - 86400,),
+        )
+        result["calls_24h"] = cur.fetchone()[0]
+        conn.close()
     except Exception:
-        total = 0
-        today = 0
+        pass
 
-    _PROXY_INJECTION_CACHE["data"] = (today, total)
-    _PROXY_INJECTION_CACHE["ts"] = now
-    return (today, total)
+    _HERMES_STATE_CACHE["data"] = result
+    _HERMES_STATE_CACHE["ts"] = now
+    return result
 
 
-def _count_scene_blocks() -> int:
-    """Count L2 scene block files (topic aggregations)."""
+def _count_memory_entries() -> int:
+    """Count memory entries (§-separated) in MEMORY.md."""
     try:
-        d = Path.home() / ".memory-tencentdb/memory-tdai/scene_blocks"
-        if d.is_dir():
-            return len([f for f in d.iterdir() if f.is_file() and f.suffix == ".md"])
+        p = Path.home() / ".hermes/memories/MEMORY.md"
+        if p.exists():
+            return p.read_text().count("§")
     except Exception:
         pass
     return 0
 
 
-def _get_persona_info() -> dict:
-    """Get L3 persona file metadata."""
+def _get_user_profile_info() -> dict:
+    """USER.md metadata (size + last updated) — the agent's user portrait."""
     try:
-        p = Path.home() / ".memory-tencentdb/memory-tdai/persona.md"
-        if p.is_file():
+        p = Path.home() / ".hermes/memories/USER.md"
+        if p.exists():
             st = p.stat()
             return {
                 "size_kb": round(st.st_size / 1024, 1),
@@ -537,123 +538,26 @@ def _get_persona_info() -> dict:
 
 
 async def collect_tdai_memory_engine() -> dict:
-    """Get memory engine stats from TencentDB Gateway + SQLite.
+    """Get memory engine stats from Hermes state.db (replaces TencentDB, 2026-08-19).
 
-    total        — L1 memory records count
-    today_writes — L0 captures + L1 extractions today
-    today_reads  — injection count today (cached 60s)
-    week_recalls — total injection count since container start (cached 60s)
-    l2_scenes    — L2 scene block file count
-    l3_persona   — L3 persona.md metadata
+    total        — lifetime message count (memory pool)
+    today_writes — messages captured today
+    today_reads  — LLM API calls today
+    calls_24h    — LLM API calls in last 24h
+    l0_count     — lifetime session count
+    l2_scenes    — MEMORY.md entry count
+    l3_persona   — USER.md metadata
     """
-    gateway_url = "http://127.0.0.1:8420"
-    db_path = Path.home() / ".memory-tencentdb/memory-tdai/vectors.db"
-    today = datetime.now().strftime("%Y-%m-%d")  # Beijing time for user-facing display
-    result = {"today_writes": 0, "today_reads": 0, "total": 0}
-
-    # 1. Health check + pipeline stats extraction
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(f"{gateway_url}/health")
-            if r.status_code == 200:
-                data = r.json()
-                if not data.get("stores", {}).get("vectorStore"):
-                    return result
-
-                # Extract pipeline worker + scanner stats from /health.services (v1.0.0+)
-                services = data.get("services", {})
-                pw = services.get("pipelineWorker", {})
-                ts = services.get("timerScanner", {})
-                result["pipeline"] = {
-                    "tasks_completed": pw.get("tasksCompleted", 0),
-                    "tasks_failed": pw.get("tasksFailed", 0),
-                    "tasks_retried": pw.get("tasksRetried", 0),
-                    "dead_letters": pw.get("deadLetterCount", 0),
-                    "tasks_enqueued": ts.get("tasksEnqueued", 0),
-                    "scan_errors": ts.get("scanErrors", 0),
-                    "scans_completed": ts.get("scansCompleted", 0),
-                    "state_backend": services.get("stateBackend", "unknown"),
-                }
-    except Exception:
-        return result
-
-    # 1b. Real-time queue status via v2 pipeline/status (L1/L2/L3 depth)
-    try:
-        async with httpx.AsyncClient(timeout=3) as c:
-            qr = await c.post(
-                f"{gateway_url}/v2/pipeline/status",
-                headers={
-                    "Authorization": "Bearer mini-app-monitor",
-                    "x-tdai-service-id": "default",
-                    "Content-Type": "application/json",
-                },
-                json={},
-            )
-            if qr.status_code == 200:
-                qdata = qr.json().get("data", {})
-                queue = {}
-                for layer in ("l1", "l2", "l3"):
-                    ls = qdata.get(layer, {})
-                    queue[layer] = {
-                        "queued": ls.get("queued", 0),
-                        "running": ls.get("running", 0),
-                        "idle": ls.get("idle", True),
-                    }
-                result["pipeline"]["queue"] = queue
-    except Exception:
-        pass
-
-    # 2. SQLite stats (TencentDB schema)
-    if not db_path.exists():
-        return result
-
-    try:
-        import sqlite3
-        import subprocess
-        import json as _json_mod
-        conn = sqlite3.connect(str(db_path))
-        cur = conn.cursor()
-
-        # Total L1 records (structured memories)
-        cur.execute("SELECT COUNT(*) FROM l1_records")
-        result["total"] = cur.fetchone()[0]
-
-        # Total L0 conversations (raw turns)
-        cur.execute("SELECT COUNT(*) FROM l0_conversations")
-        result["l0_count"] = cur.fetchone()[0]
-
-        # Today's L1 writes (created_time is UTC ISO timestamp, add 8h for Beijing time)
-        cur.execute(
-            "SELECT COUNT(*) FROM l1_records WHERE DATE(created_time, '+8 hours') = ?",
-            (today,)
-        )
-        l1_writes = cur.fetchone()[0]
-
-        # Today's L0 writes (recorded_at is UTC ISO timestamp, add 8h for Beijing time)
-        cur.execute(
-            "SELECT COUNT(*) FROM l0_conversations WHERE DATE(recorded_at, '+8 hours') = ?",
-            (today,)
-        )
-        l0_writes = cur.fetchone()[0]
-
-        # Combined: L0 captures + L1 extractions
-        raw_writes = l0_writes + l1_writes
-
-        conn.close()
-        result["today_writes"] = raw_writes
-
-    except Exception:
-        pass
-
-    # 3. Injection stats from Proxy Docker logs (60s cached, no per-tick subprocess)
-    raw_reads, week_reads = await _get_proxy_injection_stats()
-    result["today_reads"] = raw_reads
-    result["week_recalls"] = week_reads
-
-    # 4. L2/L3 layer stats (filesystem, cheap)
-    result["l2_scenes"] = _count_scene_blocks()
-    result["l3_persona"] = _get_persona_info() or {}
-
+    stats = _query_hermes_state()
+    result = {
+        "today_writes": stats["today_writes"],
+        "today_reads": stats["today_reads"],
+        "calls_24h": stats["calls_24h"],
+        "total": stats["total"],
+        "l0_count": stats["l0_count"],
+    }
+    result["l2_scenes"] = _count_memory_entries()
+    result["l3_persona"] = _get_user_profile_info()
     return result
 
 
@@ -861,17 +765,17 @@ async def hermes_platforms():
 
 @app.get("/api/hermes/memory")
 async def hermes_memory():
-    """Get memory stats from TencentDB Gateway."""
+    """Get memory/conversation stats from Hermes state.db."""
     data = await collect_tdai_memory_engine()
     resp = {
-        "l1_count": data["total"],          # 结构化记忆数
-        "l0_count": data.get("l0_count", 0), # 原始对话轮数
+        "l1_count": data["total"],          # 累计消息数
+        "l0_count": data.get("l0_count", 0), # 累计会话数
         "today_writes": data["today_writes"],
         "today_queries": data["today_reads"],
-        "week_recalls": data.get("week_recalls", 0),  # 本周检索次数
-        "l2_scenes": data.get("l2_scenes", 0),         # L2 场景聚合数
-        "l3_persona": data.get("l3_persona", {}),       # L3 人格画像元数据
-        "pipeline": data.get("pipeline", {}),  # v1.0.0 管道状态
+        "week_recalls": data.get("calls_24h", 0),  # 24h LLM 调用数
+        "l2_scenes": data.get("l2_scenes", 0),         # MEMORY.md 条目数
+        "l3_persona": data.get("l3_persona", {}),       # USER.md 元数据
+        # pipeline 字段已移除（TencentDB 管道停用）→ 前端管道卡片自动隐藏
     }
     return resp
 
@@ -896,19 +800,15 @@ async def hermes_engines():
     except Exception:
         pass
 
-    # 2. Memory Engine (TencentDB)
+    # 2. Memory Engine (Hermes built-in, 2026-08-19: TencentDB 已下线数据路径)
     try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://127.0.0.1:8420/health")
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("stores", {}).get("vectorStore"):
-                    result["memory"]["status"] = "active"
-                    result["memory"]["provider"] = "TencentDB"
-                else:
-                    result["memory"]["status"] = "degraded"
-            else:
-                result["memory"]["status"] = "offline"
+        mem_stats = _query_hermes_state()
+        mem_home = Path.home() / ".hermes/memories"
+        result["memory"]["provider"] = "Hermes 内置"
+        if mem_stats["total"] > 0 or (mem_home / "MEMORY.md").exists():
+            result["memory"]["status"] = "active"
+        else:
+            result["memory"]["status"] = "offline"
     except Exception:
         result["memory"]["status"] = "offline"
 
@@ -1003,27 +903,18 @@ async def local_models_status():
     except Exception:
         pass
 
-    # Get memory stats from Proxy injection logs (60s cached, shared with collect_tdai_memory_engine)
+    # Get memory/conversation stats from Hermes state.db (shared 30s cache)
     try:
-        today_queries, total_queries = await _get_proxy_injection_stats()
-        result["vlm"]["today_queries"] = today_queries
-        result["vlm"]["total_queries"] = total_queries
+        stats = _query_hermes_state()
+        result["vlm"]["today_queries"] = stats["today_reads"]
+        result["vlm"]["total_queries"] = stats["calls_24h"]
     except Exception:
         result["vlm"]["today_queries"] = 0
         result["vlm"]["total_queries"] = 0
     
-    # Get memory record count from SQLite
-    try:
-        import sqlite3
-        db_path = Path.home() / ".memory-tencentdb" / "memory-tdai" / "vectors.db"
-        if db_path.exists():
-            conn = sqlite3.connect(str(db_path))
-            cur = conn.cursor()
-            result["vlm"]["memory_count"] = cur.execute("SELECT COUNT(*) FROM l1_records").fetchone()[0]
-            result["vlm"]["l0_count"] = cur.execute("SELECT COUNT(*) FROM l0_conversations").fetchone()[0]
-            conn.close()
-    except Exception:
-        pass
+    # Get memory entry count from MEMORY.md
+    result["vlm"]["memory_count"] = _count_memory_entries()
+    result["vlm"]["l0_count"] = 0
 
     return result
 
@@ -1096,22 +987,16 @@ async def hermes_overview():
             engines["llm"]["status"] = "active"
     except Exception:
         pass
-    # Memory (TencentDB health)
+    # Memory (Hermes built-in memory, 2026-08-19: TencentDB 已下线数据路径)
     try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://127.0.0.1:8420/health")
-            if r.status_code == 200:
-                hdata = r.json()
-                emb_ok = hdata.get("stores", {}).get("embeddingService", False)
-                vec_ok = hdata.get("stores", {}).get("vectorStore", False)
-                engines["memory"]["provider"] = "TencentDB"
-                if emb_ok and vec_ok:
-                    engines["memory"]["status"] = "healthy"
-                elif vec_ok:
-                    engines["memory"]["status"] = "degraded"
-                else:
-                    engines["memory"]["status"] = "offline"
-                engines["memory"]["uptime_sec"] = hdata.get("uptime")
+        mem_stats = _query_hermes_state()
+        mem_home = Path.home() / ".hermes/memories"
+        if mem_stats["total"] > 0 or (mem_home / "MEMORY.md").exists():
+            engines["memory"]["provider"] = "Hermes 内置"
+            engines["memory"]["status"] = "healthy"
+        else:
+            engines["memory"]["provider"] = "Hermes 内置"
+            engines["memory"]["status"] = "offline"
     except Exception:
         pass
     data["engines"] = engines

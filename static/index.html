@@ -210,7 +210,7 @@
           <span class="lm-val" id="ret-model">--</span>
         </div>
         <div class="lm-row">
-          <span class="lm-lbl">🔍 本周检索</span>
+          <span class="lm-lbl">🔍 24h 调用</span>
           <span class="lm-val" id="ret-queries">--</span>
         </div>
         <div class="lm-row">
@@ -231,7 +231,7 @@
     <div class="mem-left">
       <div class="mem-box orange">
         <div class="mem-num" id="mem-writes">--</div>
-        <div class="mem-lbl">今日捕获</div>
+        <div class="mem-lbl">今日消息</div>
       </div>
       <div class="mem-box blue">
         <div class="mem-num" id="mem-queries">--</div>
@@ -253,7 +253,7 @@
     <div class="mem-brain" id="brain">
       <div class="brain-icon">🧠</div>
       <div class="brain-num" id="mem-count">--</div>
-      <div class="brain-lbl">记忆库</div>
+      <div class="brain-lbl">消息总量</div>
       <div class="brain-pulse"></div>
       <div class="brain-neurons">
         <div class="neuron" style="top:10%;left:15%;animation-delay:0s">✦</div>
@@ -268,7 +268,7 @@
   <div class="pipeline-card" id="pipeline-card" style="display:none">
     <div class="pipe-header">
       <span class="pipe-title">📦 记忆提取管道</span>
-      <span class="pipe-status" id="pipe-status"><span class="pipe-dot"></span>空闲</span>
+      <span class="pipe-status" id="pipe-status"><span class="pipe-dot"></span>已停用</span>
     </div>
     <div class="pipe-body">
       <div class="pipe-row">
@@ -309,13 +309,13 @@
     </div>
     <div class="pipe-body">
       <div class="pipe-row" style="flex-wrap:wrap;gap:12px">
-        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(99,102,241,0.2);color:#818cf8">L0</span>
-          对话 <span id="layer-l0" class="pipe-num">--</span></span>
-        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(34,197,94,0.2);color:var(--success)">L1</span>
-          记忆 <span id="layer-l1" class="pipe-num">--</span></span>
-        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(245,158,11,0.2);color:var(--orange)">L2</span>
-          场景 <span id="layer-l2" class="pipe-num">--</span></span>
-        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(239,68,68,0.2);color:var(--danger,red)">L3</span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(99,102,241,0.2);color:#818cf8">💬</span>
+          会话 <span id="layer-l0" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(34,197,94,0.2);color:var(--success)">📝</span>
+          消息 <span id="layer-l1" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(245,158,11,0.2);color:var(--orange)">🧠</span>
+          记忆 <span id="layer-l2" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(239,68,68,0.2);color:var(--danger,red)">👤</span>
           画像 <span id="layer-l3" class="pipe-num">--</span></span>
       </div>
       <div class="pipe-row" id="layer-persona-row" style="display:none;font-size:11px;color:var(--hint)">
@@ -377,6 +377,6 @@
   <span class="uptime-lbl">运行中</span>
 </div>
 
-<script src="/static/app.js?v=38"></script>
+<script src="/static/app.js?v=40"></script>
 </body>
 </html>
