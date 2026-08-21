@@ -166,16 +166,41 @@ async def arun(cmd: list[str], **kw) -> tuple[int, str, str]:
     return proc.returncode or 0, stdout.decode(), stderr.decode()
 
 
-# ── Gateway config loader (tdai-gateway.yaml) ───────────────────────
+# ── Gateway config loader (OpenViking ov.conf) ───────────────────────
 # 用途：避免 vector/retrieval/vlm 卡片硬编码 LLM/embedding 配置。
 # LLM 切换时只需改 Gateway 自己的 yaml，Mini App 自动跟随（彻底杜绝 3 次复发）。
 # v2.0.0: Docker 部署后配置由 start-memory-core.sh 生成
 # 优先读 v2 路径，fallback 到 v1 旧路径
-_GATEWAY_YAML_V2 = "/home/ubuntu/TencentDB-Agent-Memory/deploy/global-images/.memory-core-config/tdai-gateway.yaml"
-_GATEWAY_YAML_V1 = "/home/ubuntu/tdai-gateway/tdai-gateway.yaml"
-_GATEWAY_YAML = _GATEWAY_YAML_V2 if os.path.exists(_GATEWAY_YAML_V2) else _GATEWAY_YAML_V1
+_OV_CONF = os.path.expanduser("~/.openviking/ov.conf")
 _GATEWAY_CFG_CACHE = {"data": None, "ts": 0.0}
 _GATEWAY_CFG_TTL = 5.0  # 秒；切换配置后最多 5s 生效
+
+
+_PROVIDER_NAMES = {
+    "gemini": "Gemini",
+    "glm": "GLM",
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "ollama": "Ollama",
+    "zai": "Z.AI",
+    "z_ai": "Z.AI",
+    "volcengine": "Volcengine",
+    "doubao": "Doubao",
+    "deepseek": "DeepSeek",
+}
+
+
+def _provider_display(provider: str) -> str:
+    """ov.conf provider 字段 → 前端友好名。"""
+    return _PROVIDER_NAMES.get((provider or "").lower(), provider or "未知")
+
+
+def _short_model(model: str) -> str:
+    """模型名缩写，避免卡片换行。"""
+    m = (model or "").strip()
+    if m.startswith("gemini-embedding-2-preview"):
+        return "gemini-embedding-2"
+    return m
 
 
 def _provider_from_baseurl(base_url: str) -> str:
@@ -201,7 +226,7 @@ def _provider_from_baseurl(base_url: str) -> str:
 
 
 def load_gateway_config() -> dict:
-    """读 tdai-gateway.yaml，5 秒缓存。返回结构：
+    """读 ~/.openviking/ov.conf，5 秒缓存。返回结构：
     {
         "llm": {"model": str, "provider": str},
         "embedding": {"model": str, "provider": str, "dimensions": int|None},
@@ -214,18 +239,18 @@ def load_gateway_config() -> dict:
         return _GATEWAY_CFG_CACHE["data"]
     result = {}
     try:
-        with open(_GATEWAY_YAML, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-        llm = cfg.get("llm") or {}
-        emb = (cfg.get("memory") or {}).get("embedding") or {}
+        with open(_OV_CONF, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        emb = (cfg.get("embedding") or {}).get("dense") or {}
+        vlm = cfg.get("vlm") or {}
         result["llm"] = {
-            "model": llm.get("model", ""),
-            "provider": _provider_from_baseurl(llm.get("baseUrl", "")),
+            "model": _short_model(vlm.get("model", "")),
+            "provider": _provider_display(vlm.get("provider", "")) or "GLM",
         }
         result["embedding"] = {
-            "model": emb.get("model", ""),
-            "provider": _provider_from_baseurl(emb.get("baseUrl", "")),
-            "dimensions": emb.get("dimensions"),
+            "model": _short_model(emb.get("model", "")),
+            "provider": _provider_display(emb.get("provider", "")) or "Gemini",
+            "dimensions": emb.get("dimension"),
         }
     except Exception:
         pass
@@ -537,27 +562,108 @@ def _get_user_profile_info() -> dict:
     return {}
 
 
-async def collect_tdai_memory_engine() -> dict:
-    """Get memory engine stats from Hermes state.db (replaces TencentDB, 2026-08-19).
+def _query_openviking_stats() -> dict:
+    """Read OpenViking usage_audit.sqlite3 + memory file tree (read-only).
 
-    total        — lifetime message count (memory pool)
-    today_writes — messages captured today
-    today_reads  — LLM API calls today
-    calls_24h    — LLM API calls in last 24h
-    l0_count     — lifetime session count
-    l2_scenes    — MEMORY.md entry count
-    l3_persona   — USER.md metadata
+    memory_count — number of memory .md files under viking://user/default/peers/hermes/memories/
+    today_writes — content/write requests today (CST 今日口径)
+    today_finds  — find/search retrievals today (CST 今日口径)
     """
-    stats = _query_hermes_state()
+    result = {"memory_count": 0, "today_writes": 0, "today_finds": 0}
+    audit_db = os.path.expanduser("~/.openviking/data/_system/usage_audit/usage_audit.sqlite3")
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"file:{audit_db}?mode=ro", uri=True, timeout=5)
+        cur = conn.cursor()
+        # OpenViking usage_audit 按 UTC 日期分桶；用户视角为 CST(UTC+8)。
+        # 今日 = CST 今天 00:00 起 → 换算 UTC 时间 +8h 后再取 date。
+        cst_today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+        cur.execute(
+            "SELECT COALESCE(SUM(request_count),0) FROM usage_retrieval_hourly "
+            "WHERE date(datetime(date_utc || ' ' || printf('%02d', hour_utc) || ':00:00', '+8 hours')) = ?",
+            (cst_today,),
+        )
+        result["today_finds"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(*) FROM request_audit "
+            "WHERE route = '/api/v1/content/write' AND status_code = 200 "
+            "AND date(datetime(replace(substr(created_at,1,19),'T',' '), '+8 hours')) = ?",
+            (cst_today,),
+        )
+        result["today_writes"] = cur.fetchone()[0]
+        conn.close()
+    except Exception:
+        pass
+    # count memory files (user/default/memories + peers/hermes/memories)
+    try:
+        base = os.path.expanduser("~/.openviking/data/viking/default/user/default")
+        for sub in ("memories", os.path.join("peers", "hermes", "memories")):
+            mem_root = os.path.join(base, sub)
+            if os.path.isdir(mem_root):
+                for root, dirs, files in os.walk(mem_root):
+                    for f in files:
+                        if f.endswith(".md") and not f.startswith("."):
+                            result["memory_count"] += 1
+    except Exception:
+        pass
+    return result
+
+
+def _proc_uptime_sec(port: int) -> int | None:
+    """Uptime (seconds) of the process listening on `port`, or None if not found.
+
+    OpenViking /health 不返回 uptime 字段，运行时长从进程级获取。
+    """
+    try:
+        import psutil
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.status == "LISTEN" and conn.laddr.port == port:
+                try:
+                    proc = psutil.Process(conn.pid)
+                    return int(time.time() - proc.create_time())
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    return None
+    except Exception:
+        return None
+    return None
+
+
+def _hermes_gateway_uptime_sec() -> int | None:
+    """Uptime (seconds) of the hermes-gateway process (memory engine host), or None."""
+    try:
+        import psutil
+        for p in psutil.process_iter(["pid", "cmdline", "create_time"]):
+            try:
+                cl = " ".join(p.info["cmdline"] or [])
+                if "hermes_cli.main" in cl and "gateway" in cl:
+                    return int(time.time() - p.info["create_time"])
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:
+        pass
+    return None
+
+
+async def collect_memory_engine() -> dict:
+    """Get memory engine stats from OpenViking (2026-08-22: TencentDB 退役后).
+
+    count        — OpenViking 记忆文件数
+    today_writes — 今日写入记忆数
+    today_queries— 今日检索次数
+    """
+    stats = _query_openviking_stats()
+    mem_home = Path.home() / ".hermes/memories"
     result = {
+        "count": stats["memory_count"],
         "today_writes": stats["today_writes"],
-        "today_reads": stats["today_reads"],
-        "calls_24h": stats["calls_24h"],
-        "total": stats["total"],
-        "l0_count": stats["l0_count"],
+        "today_queries": stats["today_finds"],
+        "l2_scenes": _count_memory_entries(),  # MEMORY.md § 条目数（Hermes 内置层）
+        "l3_persona": _get_user_profile_info(),
     }
-    result["l2_scenes"] = _count_memory_entries()
-    result["l3_persona"] = _get_user_profile_info()
+    # 博客组件旧字段兼容（Blogger 模板内联 JS 仍读 today_reads/total，2026-08-22 OpenViking 迁移改了字段名）
+    # 若日后博客模板同步为新字段名（today_queries/count），可删除这两行
+    result["today_reads"] = result["today_queries"]
+    result["total"] = result["count"]
     return result
 
 
@@ -765,14 +871,14 @@ async def hermes_platforms():
 
 @app.get("/api/hermes/memory")
 async def hermes_memory():
-    """Get memory/conversation stats from Hermes state.db."""
-    data = await collect_tdai_memory_engine()
+    """Get memory stats from OpenViking (2026-08-22)."""
+    data = await collect_memory_engine()
     resp = {
-        "l1_count": data["total"],          # 累计消息数
-        "l0_count": data.get("l0_count", 0), # 累计会话数
+        "l1_count": data["count"],          # OpenViking 记忆文件数
+        "l0_count": data.get("l0_count", 0), # 兼容字段（保留）
         "today_writes": data["today_writes"],
-        "today_queries": data["today_reads"],
-        "week_recalls": data.get("calls_24h", 0),  # 24h LLM 调用数
+        "today_queries": data["today_queries"],
+        "week_recalls": data.get("today_queries", 0),  # 今日检索数
         "l2_scenes": data.get("l2_scenes", 0),         # MEMORY.md 条目数
         "l3_persona": data.get("l3_persona", {}),       # USER.md 元数据
         # pipeline 字段已移除（TencentDB 管道停用）→ 前端管道卡片自动隐藏
@@ -805,6 +911,8 @@ async def hermes_engines():
         mem_stats = _query_hermes_state()
         mem_home = Path.home() / ".hermes/memories"
         result["memory"]["provider"] = "Hermes 内置"
+        # 运行时长 = hermes-gateway 进程 uptime（记忆引擎宿主进程）
+        result["memory"]["uptime_sec"] = await asyncio.get_event_loop().run_in_executor(None, _hermes_gateway_uptime_sec)
         if mem_stats["total"] > 0 or (mem_home / "MEMORY.md").exists():
             result["memory"]["status"] = "active"
         else:
@@ -813,27 +921,28 @@ async def hermes_engines():
         result["memory"]["status"] = "offline"
 
     # 3. Vector Engine & 4. Local Retrieval — from TencentDB Gateway
-    # LLM/embedding 配置从 tdai-gateway.yaml 动态读取，避免硬编码漂移
+    # LLM/embedding 配置从 ~/.openviking/ov.conf 动态读取
     gw_cfg = load_gateway_config()
     emb_cfg = gw_cfg.get("embedding") or {}
     llm_cfg = gw_cfg.get("llm") or {}
     try:
         async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://127.0.0.1:8420/health")
+            r = await c.get("http://127.0.0.1:1933/health")
             if r.status_code == 200:
                 data = r.json()
-                # Vector engine status
+                ov_ok = data.get("healthy", False)
+                # Vector engine status (OpenViking embedding)
                 result["vector"] = {
                     "provider": emb_cfg.get("provider") or "未知",
                     "model": emb_cfg.get("model") or "未知",
                     "dimension": str(emb_cfg.get("dimensions") or "未知"),
-                    "active": data.get("stores", {}).get("embeddingService", False),
+                    "active": bool(ov_ok),
                 }
-                # Retrieval status (用 LLM 配置；v2.0 后 Gateway 主对话 LLM 即用于 recall)
+                # Retrieval status (OpenViking semantic search)
                 result["retrieval"] = {
                     "provider": llm_cfg.get("provider") or "未知",
                     "model": llm_cfg.get("model") or "未知",
-                    "active": data.get("stores", {}).get("vectorStore", False),
+                    "active": bool(ov_ok),
                 }
     except Exception:
         pass
@@ -845,7 +954,7 @@ async def hermes_engines():
 @app.get("/api/hermes/local-models")
 async def local_models_status():
     """Real-time status for memory backend models."""
-    # 从 tdai-gateway.yaml 动态读取 LLM/embedding 配置（避免硬编码漂移）
+    # 从 ~/.openviking/ov.conf 动态读取 LLM/embedding 配置
     gw_cfg = load_gateway_config()
     emb_cfg = gw_cfg.get("embedding") or {}
     llm_cfg = gw_cfg.get("llm") or {}
@@ -866,54 +975,42 @@ async def local_models_status():
         },
     }
 
-    # Check embedding status from Gateway health
+    # Check status from OpenViking health (2026-08-22)
+    # OpenViking /health 无 uptime 字段 → 运行时长从监听 1933 的进程获取
+    ov_uptime = None
+    try:
+        ov_uptime = await asyncio.get_event_loop().run_in_executor(None, _proc_uptime_sec, 1933)
+    except Exception:
+        pass
     try:
         async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://127.0.0.1:8420/health")
+            r = await c.get("http://127.0.0.1:1933/health")
             if r.status_code == 200:
                 data = r.json()
-                if data.get("stores", {}).get("embeddingService"):
+                if data.get("healthy"):
                     result["embedding"]["status"] = "active"
-                    result["embedding"]["uptime_sec"] = data.get("uptime")
-    except Exception:
-        pass
-
-    # Check TencentDB Gateway (:8420)
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get("http://127.0.0.1:8420/health")
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("stores", {}).get("vectorStore"):
                     result["vlm"]["status"] = "online"
-                    result["vlm"]["gateway_uptime"] = data.get("uptime")
+                    result["vlm"]["gateway_uptime"] = data.get("uptime") or ov_uptime
                     result["vlm"]["gateway_version"] = data.get("version")
+                    result["embedding"]["uptime_sec"] = result["vlm"]["gateway_uptime"]
     except Exception:
         pass
 
-    # Get memory count from SQLite
+    # Memory/conversation stats from OpenViking usage audit
     try:
-        import sqlite3
-        db_path = os.path.expanduser("~/.memory-tencentdb/memory-tdai/vectors.db")
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM l1_records")
-        result["vlm"]["memory_count"] = cur.fetchone()[0]
-        conn.close()
-    except Exception:
-        pass
-
-    # Get memory/conversation stats from Hermes state.db (shared 30s cache)
-    try:
-        stats = _query_hermes_state()
-        result["vlm"]["today_queries"] = stats["today_reads"]
-        result["vlm"]["total_queries"] = stats["calls_24h"]
+        ov = _query_openviking_stats()
+        result["vlm"]["today_queries"] = ov["today_finds"]
+        result["vlm"]["total_queries"] = ov["today_writes"] + ov["today_finds"]
     except Exception:
         result["vlm"]["today_queries"] = 0
         result["vlm"]["total_queries"] = 0
-    
-    # Get memory entry count from MEMORY.md
-    result["vlm"]["memory_count"] = _count_memory_entries()
+
+    # Memory entry count from OpenViking memory files
+    try:
+        ov = _query_openviking_stats()
+        result["vlm"]["memory_count"] = ov["memory_count"]
+    except Exception:
+        result["vlm"]["memory_count"] = 0
     result["vlm"]["l0_count"] = 0
 
     return result
@@ -967,9 +1064,9 @@ async def hermes_overview():
             platforms["QQ"] = False
     data["platforms"] = {k: v for k, v in platforms.items() if k in ("Telegram", "QQ", "微信")}
 
-    # 3. Memory (TencentDB)
-    mem = await collect_tdai_memory_engine()
-    data["memory"] = {"count": mem["total"], "today_writes": mem["today_writes"], "today_queries": mem["today_reads"], "l2_scenes": mem.get("l2_scenes", 0), "l3_persona": mem.get("l3_persona", {}), "pipeline": mem.get("pipeline", {})}
+    # 3. Memory (OpenViking, 2026-08-22)
+    mem = await collect_memory_engine()
+    data["memory"] = {"count": mem["count"], "today_writes": mem["today_writes"], "today_queries": mem["today_queries"], "l2_scenes": mem.get("l2_scenes", 0), "l3_persona": mem.get("l3_persona", {})}
 
     # 4. Engines (all 4 — unified status badges)
     engines = {
@@ -987,16 +1084,14 @@ async def hermes_overview():
             engines["llm"]["status"] = "active"
     except Exception:
         pass
-    # Memory (Hermes built-in memory, 2026-08-19: TencentDB 已下线数据路径)
+    # Memory (OpenViking, 2026-08-22)
     try:
-        mem_stats = _query_hermes_state()
+        ov = _query_openviking_stats()
         mem_home = Path.home() / ".hermes/memories"
-        if mem_stats["total"] > 0 or (mem_home / "MEMORY.md").exists():
-            engines["memory"]["provider"] = "Hermes 内置"
-            engines["memory"]["status"] = "healthy"
-        else:
-            engines["memory"]["provider"] = "Hermes 内置"
-            engines["memory"]["status"] = "offline"
+        engines["memory"]["provider"] = "OpenViking"
+        engines["memory"]["status"] = "healthy" if ov["memory_count"] > 0 or (mem_home / "MEMORY.md").exists() else "degraded"
+        # 运行时长 = OpenViking 进程 uptime（监听 1933，/health 无 uptime 字段）
+        engines["memory"]["uptime_sec"] = await asyncio.get_event_loop().run_in_executor(None, _proc_uptime_sec, 1933)
     except Exception:
         pass
     data["engines"] = engines
@@ -1167,7 +1262,7 @@ async def ops_restart_service(request: Request):
 async def blog_widget():
     """Return data in the format expected by the blog embed widget."""
     sys_data = collect_system()
-    mem_eng = await collect_tdai_memory_engine()
+    mem_eng = await collect_memory_engine()
     monthly = await collect_monthly_traffic()
     io = _sample_io()
 
@@ -1209,7 +1304,7 @@ async def blog_stream(request: Request):
                 break
             try:
                 sys_data = collect_system()
-                mem_eng = await collect_tdai_memory_engine()
+                mem_eng = await collect_memory_engine()
                 monthly = await collect_monthly_traffic()
                 io = _sample_io()
                 payload = {

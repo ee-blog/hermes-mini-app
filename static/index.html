@@ -231,11 +231,11 @@
     <div class="mem-left">
       <div class="mem-box orange">
         <div class="mem-num" id="mem-writes">--</div>
-        <div class="mem-lbl">今日消息</div>
+        <div class="mem-lbl">今日写入</div>
       </div>
       <div class="mem-box blue">
         <div class="mem-num" id="mem-queries">--</div>
-        <div class="mem-lbl">今日调用</div>
+        <div class="mem-lbl">今日检索</div>
       </div>
     </div>
     <div class="flow-bridge">
@@ -253,7 +253,7 @@
     <div class="mem-brain" id="brain">
       <div class="brain-icon">🧠</div>
       <div class="brain-num" id="mem-count">--</div>
-      <div class="brain-lbl">消息总量</div>
+      <div class="brain-lbl">记忆文件</div>
       <div class="brain-pulse"></div>
       <div class="brain-neurons">
         <div class="neuron" style="top:10%;left:15%;animation-delay:0s">✦</div>
@@ -305,16 +305,16 @@
   <!-- Memory Layers Card -->
   <div class="pipeline-card" id="memory-layers-card" style="display:none">
     <div class="pipe-header">
-      <span class="pipe-title">📊 记忆层级</span>
+      <span class="pipe-title">📊 OpenViking 记忆</span>
     </div>
     <div class="pipe-body">
       <div class="pipe-row" style="flex-wrap:wrap;gap:12px">
-        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(99,102,241,0.2);color:#818cf8">💬</span>
-          会话 <span id="layer-l0" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(99,102,241,0.2);color:#818cf8">🗂️</span>
+          记忆文件 <span id="layer-l0" class="pipe-num">--</span></span>
         <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(34,197,94,0.2);color:var(--success)">📝</span>
-          消息 <span id="layer-l1" class="pipe-num">--</span></span>
-        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(245,158,11,0.2);color:var(--orange)">🧠</span>
-          记忆 <span id="layer-l2" class="pipe-num">--</span></span>
+          今日写入 <span id="layer-l1" class="pipe-num">--</span></span>
+        <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(245,158,11,0.2);color:var(--orange)">🔍</span>
+          今日检索 <span id="layer-l2" class="pipe-num">--</span></span>
         <span class="pipe-metric"><span class="pipe-icon" style="background:rgba(239,68,68,0.2);color:var(--danger,red)">👤</span>
           画像 <span id="layer-l3" class="pipe-num">--</span></span>
       </div>

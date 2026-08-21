@@ -263,9 +263,10 @@ function renderHermesData(d) {
     const layersCard = $('memory-layers-card');
     if (layersCard) {
       layersCard.style.display = 'flex';
-      const el0 = $('layer-l0'); if (el0) el0.textContent = d.memory.l0_count ?? d.memory.count ?? '--';
-      const el1 = $('layer-l1'); if (el1) el1.textContent = d.memory.l1_count ?? d.memory.count ?? '--';
-      const el2 = $('layer-l2'); if (el2) el2.textContent = d.memory.l2_scenes ?? '--';
+      // OpenViking 记忆层（2026-08-22）：记忆文件数 / 今日写入 / 今日检索
+      const el0 = $('layer-l0'); if (el0) el0.textContent = d.memory.count ?? '--';
+      const el1 = $('layer-l1'); if (el1) el1.textContent = d.memory.today_writes ?? '--';
+      const el2 = $('layer-l2'); if (el2) el2.textContent = d.memory.today_queries ?? '--';
       // L3 persona
       const persona = d.memory.l3_persona || {};
       const el3 = $('layer-l3'); if (el3) el3.textContent = persona.size_kb ? persona.size_kb + 'KB' : '--';
