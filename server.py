@@ -377,6 +377,28 @@ def _nginx_active() -> bool:
     return False
 
 
+def _llamacpp_active() -> bool:
+    """Check llama.cpp services by listening ports (8082 ov-intent, 8083 blog bot).
+
+    8081 llama-server retired 2026-11-02 (2B model archived); unit-name based
+    check kept showing "not running" while real services live on other ports.
+    Port probe is decoupled from unit names so model swaps don't break it.
+    """
+    llama_pids = set()
+    for proc in psutil.process_iter(["pid", "name"]):
+        try:
+            if (proc.info["name"] or "") == "llama-server":
+                llama_pids.add(proc.info["pid"])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    if not llama_pids:
+        return False
+    for conn in psutil.net_connections(kind="inet"):
+        if conn.status == "LISTEN" and conn.laddr.port in (8082, 8083):
+            return True
+    return False
+
+
 async def collect_services() -> dict:
     """Check service statuses concurrently."""
     env = get_user_env()
@@ -385,7 +407,7 @@ async def collect_services() -> dict:
         "gateway": _service_active(["systemctl", "is-active", "hermes-gateway"], env),
         "hermes": _hermes_ok(env),
         "nginx": loop.run_in_executor(None, _nginx_active),
-        "llamacpp": _service_active(["systemctl", "is-active", "llama-server"], env),
+        "llamacpp": loop.run_in_executor(None, _llamacpp_active),
     }
     results = {}
     for name, coro in tasks.items():
